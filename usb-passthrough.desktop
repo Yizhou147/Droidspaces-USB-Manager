@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=USB Passthrough
+Comment=创建 USB 设备节点并启动 ADB (Droidspaces)
+Exec=sudo /usr/local/bin/usb-passthrough.sh
+Icon=drive-removable-media-usb
+Terminal=true
+Type=Application
+Categories=System;
