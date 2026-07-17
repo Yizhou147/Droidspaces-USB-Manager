@@ -1,0 +1,36 @@
+#!/bin/bash
+set -e
+
+# 获取当前用户
+CURRENT_USER=$(logname 2>/dev/null || echo $SUDO_USER)
+
+# 创建 sudoers 配置
+cat > /etc/sudoers.d/usb-storage << EOF
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mount *
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/umount *
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mkdir -p /mnt/usb-storage
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mkdir -p /home/${CURRENT_USER}/USB-Storage
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/chmod * /mnt/usb-storage
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/chmod * /home/${CURRENT_USER}/USB-Storage
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mknod -m 666 /dev/sd* b * *
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/chmod 666 /dev/sd*
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/rm /dev/sd*
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mkdir -p /dev/bus/usb/*
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mknod -m 666 /dev/bus/usb/* c * *
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/chmod 666 /dev/bus/usb/*
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/rm /dev/bus/usb/*
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/sbin/blkid *
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/bash /usr/share/usb-manager/usb-passthrough.sh
+EOF
+
+chmod 440 /etc/sudoers.d/usb-storage
+
+# 创建挂载点
+mkdir -p /mnt/usb-storage
+
+# 更新桌面数据库
+if command -v update-desktop-database &> /dev/null; then
+    update-desktop-database /usr/share/applications 2>/dev/null || true
+fi
+
+echo "USB Manager 安装完成！"

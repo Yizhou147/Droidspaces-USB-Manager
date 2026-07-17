@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+
+# 清理 sudoers 配置
+rm -f /etc/sudoers.d/usb-storage
+
+# 清理挂载点
+if [ -d /mnt/usb-storage ]; then
+    rmdir /mnt/usb-storage 2>/dev/null || true
+fi
+
+echo "USB Manager 已卸载"

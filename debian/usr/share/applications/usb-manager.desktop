@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=USB Manager
+Name[zh_CN]=USB 管理器
+Comment=USB Device Manager
+Comment[zh_CN]=USB 设备管理器
+Exec=python3 /usr/share/usb-manager/usb-manager.py
+Icon=drive-removable-media-usb
+Terminal=false
+Type=Application
+Categories=System;
+StartupNotify=true

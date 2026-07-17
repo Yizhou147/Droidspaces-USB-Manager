@@ -1,79 +1,111 @@
-# Droidspaces USB Passthrough
+# USB Manager
 
-在 [Droidspaces](https://github.com/ravindu644/Droidspaces-OSS) Linux 容器中创建 USB 设备节点，使 `adb`、`fastboot` 等工具可用。
+USB 设备管理工具，自动检测和管理 USB 存储设备和 ADB 设备。
 
-## 背景
+## 功能特性
 
-Droidspaces 的 `-H`（硬件访问）选项会挂载 `/sys/bus/usb`（sysfs），但不会自动创建 `/dev/bus/usb/` 下的设备节点。而 `adb` 和 `fastboot` 依赖这些节点来访问 USB 设备。
+- 自动检测 USB 存储设备（U盘、移动硬盘等）
+- 自动创建设备节点
+- 自动挂载/卸载分区
+- 支持打开挂载目录（Dolphin 文件管理器）
+- 支持弹出设备（安全移除）
+- 自动检测 ADB 设备（Android 手机等）
+- 系统托盘图标
+- 支持 Wayland 和 X11
 
-本脚本自动扫描 sysfs 中的 USB 设备，读取 `major:minor` 号，并创建对应的 `/dev/bus/usb/BBB/DDD` 字符设备节点。
+## 安装方法
 
-## 前提条件
-
-- Droidspaces 容器，启动时添加 `-H` 参数（硬件访问）
-- 容器内安装 `android-tools-adb`（或手动下载 platform-tools）
-
-## 安装
-
-```bash
-# 下载脚本
-wget https://raw.githubusercontent.com/USERNAME/droidspaces-usb-passthrough/main/usb-passthrough.sh
-
-# 添加执行权限
-chmod +x usb-passthrough.sh
-
-# （可选）安装到系统路径
-sudo cp usb-passthrough.sh /usr/local/bin/usb-passthrough.sh
-```
-
-## 使用
+### 方法 1：使用 deb 包（推荐）
 
 ```bash
-sudo ./usb-passthrough.sh
+sudo dpkg -i usb-manager_1.0.0_all.deb
+sudo apt-get install -f  # 自动补齐依赖
 ```
 
-脚本会自动：
-1. 扫描 `/sys/bus/usb/devices/` 中的所有 USB 设备
-2. 读取每个设备的 `major:minor` 号
-3. 在 `/dev/bus/usb/` 下创建对应的字符设备节点
-4. 运行 `adb devices` 测试
-
-## 桌面快捷方式
+### 方法 2：手动安装
 
 ```bash
-cp usb-passthrough.desktop ~/Desktop/
-chmod +x ~/Desktop/usb-passthrough.desktop
-# 如果桌面环境不信任该文件：
-gio set ~/Desktop/usb-passthrough.desktop metadata::trusted true 2>/dev/null
+# 安装依赖
+sudo apt-get install python3 python3-pyqt5 udev util-linux
+
+# 复制文件
+sudo cp usb-manager.py /usr/share/usb-manager/
+sudo cp usb-passthrough.sh /usr/share/usb-manager/
+sudo cp usb-storage-passthrough.sh /usr/share/usb-manager/
+
+# 创建桌面快捷方式
+sudo cp usb-manager.desktop /usr/share/applications/
+
+# 创建启动脚本
+sudo cp usb-manager /usr/bin/
+sudo chmod +x /usr/bin/usb-manager
+
+# 配置 sudoers（可选，用于无密码挂载）
+sudo cp usb-storage /etc/sudoers.d/
+sudo chmod 440 /etc/sudoers.d/usb-storage
 ```
 
-## 工作原理
+## 使用方法
 
-```
-Android 宿主 USB 栈
-    ↓ (Droidspaces -H 挂载 sysfs)
-/sys/bus/usb/devices/X-Y/dev  →  "189:7"
-    ↓ (本脚本读取并 mknod)
-/dev/bus/usb/001/008  →  c 189 7
-    ↓
-adb / fastboot 可用 ✅
+### 启动应用
+
+```bash
+# 从应用菜单启动
+# 或者从终端启动
+usb-manager
 ```
 
-## 常见问题
+### 功能说明
 
-### Q: 每次重启容器都要重新运行吗？
-A: 是的。`/dev` 是 tmpfs，重启后设备节点会丢失。可以把脚本加到容器的启动脚本中。
+1. **自动检测**：应用会自动扫描 USB 存储设备和 ADB 设备
+2. **自动挂载**：新插入的 U 盘会自动挂载到 `~/USB-Storage`
+3. **打开目录**：点击"打开目录"按钮会打开 Dolphin 文件管理器
+4. **弹出设备**：点击"弹出"按钮会卸载设备并提示可安全移除
+5. **ADB 设备**：自动检测 Android 手机等 ADB 设备
 
-### Q: 换了手机需要重新运行吗？
-A: 是的。USB 设备号会变化，需要重新扫描创建。
+### 挂载点
 
-### Q: 脚本能用于其他 USB 工具吗？
-A: 可以。只要工具依赖 `/dev/bus/usb/` 设备节点，本脚本都适用。
+- 默认挂载点：`~/USB-Storage`
+- 可以在代码中修改 `MOUNT_BASE` 变量
 
-## 致谢
+## 依赖说明
 
-- [Droidspaces](https://github.com/ravindu644/Droidspaces-OSS) by ravindu644
+### 必需依赖
 
-## License
+- `python3`：Python 3.x
+- `python3-pyqt5`：Qt5 图形界面库
+- `udev`：设备管理
+- `util-linux`：blkid、mount 等工具
 
-MIT
+### 可选依赖
+
+- `ntfs-3g`：NTFS 文件系统支持（用于挂载 Windows 格式的 U 盘）
+- `exfat-fuse`：exFAT 文件系统支持
+- `kio-admin`：KDE Dolphin 管理员模式支持
+
+### NTFS 支持
+
+如果需要挂载 NTFS 格式的 U 盘，需要手动安装 ntfs-3g：
+
+```bash
+sudo apt-get install ntfs-3g
+```
+
+## 卸载方法
+
+```bash
+sudo dpkg -r usb-manager
+```
+
+## 文件说明
+
+- `usb-manager.py`：主程序
+- `usb-passthrough.sh`：ADB 设备节点创建脚本
+- `usb-storage-passthrough.sh`：USB 存储设备节点创建脚本
+- `usb-manager.desktop`：桌面快捷方式
+- `usb-manager`：启动脚本
+- `usb-storage`：sudoers 配置文件
+
+## 许可证
+
+MIT License

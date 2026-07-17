@@ -1,0 +1,9 @@
+#!/usr/bin/env xdg-open
+[Desktop Entry]
+Name=USB 存储设备管理器
+Comment=Droidspaces USB Storage Manager
+Exec=python3 /home/xieyizhou/Documents/Droidspaces usb直通/droidspaces-usb-passthrough/usb-manager.py
+Icon=drive-removable-media-usb
+Terminal=false
+Type=Application
+Categories=System;
