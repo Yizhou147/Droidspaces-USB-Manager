@@ -1,6 +1,6 @@
-# USB Manager
+# Droidspaces USB Manager
 
-USB 设备管理工具，自动检测和管理 USB 存储设备和 ADB 设备。
+USB 设备管理工具，专为 **Droidspaces** Linux 容器环境设计，自动检测和管理 USB 存储设备和 ADB 设备。
 
 ## 功能特性
 
