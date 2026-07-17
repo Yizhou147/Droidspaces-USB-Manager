@@ -29,19 +29,19 @@ sudo apt-get install -f  # 自动补齐依赖
 sudo apt-get install python3 python3-pyqt5 udev util-linux
 
 # 复制文件
-sudo cp usb-manager.py /usr/share/usb-manager/
-sudo cp usb-passthrough.sh /usr/share/usb-manager/
-sudo cp usb-storage-passthrough.sh /usr/share/usb-manager/
+sudo cp src/usb-manager.py /usr/share/usb-manager/
+sudo cp src/usb-passthrough.sh /usr/share/usb-manager/
+sudo cp src/usb-storage-passthrough.sh /usr/share/usb-manager/
 
 # 创建桌面快捷方式
-sudo cp usb-manager.desktop /usr/share/applications/
+sudo cp desktop/usb-manager.desktop /usr/share/applications/
 
 # 创建启动脚本
-sudo cp usb-manager /usr/bin/
+sudo cp debian/usr/bin/usb-manager /usr/bin/
 sudo chmod +x /usr/bin/usb-manager
 
 # 配置 sudoers（可选，用于无密码挂载）
-sudo cp usb-storage /etc/sudoers.d/
+sudo cp debian/etc/sudoers.d/usb-storage /etc/sudoers.d/
 sudo chmod 440 /etc/sudoers.d/usb-storage
 ```
 
