@@ -18,7 +18,7 @@ USB 设备管理工具，自动检测和管理 USB 存储设备和 ADB 设备。
 ### 方法 1：使用 deb 包（推荐）
 
 ```bash
-sudo dpkg -i usb-manager_1.0.0_all.deb
+sudo dpkg -i usb-manager_1.1.0_all.deb
 sudo apt-get install -f  # 自动补齐依赖
 ```
 
