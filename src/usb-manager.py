@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Droidspaces USB Storage Manager
-带系统托盘和主窗口的 USB 存储设备管理工具
+Droidspaces USB Manager
 自动检测、挂载 USB 存储设备，支持弹出和打开目录
 """
 
@@ -9,6 +8,8 @@ import sys
 import os
 import subprocess
 import fcntl
+import locale
+import json
 from pathlib import Path
 
 # 强制使用 X11 后端（避免 Wayland 问题）
@@ -19,7 +20,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTreeWidget, QTreeWidgetItem,
     QMessageBox, QStatusBar, QStyle, QSystemTrayIcon, QMenu, QAction,
-    QSpinBox
+    QSpinBox, QComboBox
 )
 from PyQt5.QtGui import QIcon, QColor, QFont
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
@@ -28,6 +29,187 @@ from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 LOCK_FILE = "/tmp/usb-manager.lock"
 # 挂载点基础目录
 MOUNT_BASE = os.path.expanduser("~/USB-Storage")
+# 配置文件路径
+CONFIG_FILE = os.path.expanduser("~/.config/usb-manager/config.json")
+
+# ==================== 翻译 ====================
+TRANSLATIONS = {
+    "zh": {
+        "window_title": "Droidspaces USB 管理器",
+        "title": "USB 管理器",
+        "refresh": "刷新",
+        "pause_scan": "暂停扫描",
+        "resume_scan": "恢复扫描",
+        "interval_label": "刷新间隔:",
+        "interval_suffix": " 秒",
+        "col_device": "设备",
+        "col_size": "大小",
+        "col_fs": "文件系统",
+        "col_status": "状态",
+        "col_action": "操作",
+        "ready": "就绪",
+        "connected": "已连接",
+        "disconnected": "未连接",
+        "mounted": "已挂载",
+        "unmounted": "未挂载",
+        "unknown": "未知",
+        "open_dir": "打开目录",
+        "eject": "弹出",
+        "mount": "挂载",
+        "connect": "连接",
+        "scan_resumed": "已恢复自动扫描",
+        "scan_paused": "自动扫描已暂停",
+        "eject_status": "已弹出 {} - 自动扫描已暂停，点击 刷新 恢复",
+        "mount_status": "已挂载 {} 到 {}",
+        "auto_mount_status": "已自动挂载 {} 到 {}",
+        "adb_connected": "ADB 设备已连接",
+        "adb_node_created": "已创建 ADB 设备节点 {}",
+        "status_storage": "{} 个存储设备",
+        "status_adb": "{} 个 ADB 设备",
+        "status_mounted": "{} 个分区已挂载",
+        "status_detected": "检测到 {}",
+        "status_no_device": "未检测到 USB 设备",
+        "tray_tip": "USB 设备管理",
+        "tray_show": "显示主窗口",
+        "tray_refresh": "刷新设备",
+        "tray_quit": "退出",
+        "notify_mount_title": "USB 设备已挂载",
+        "notify_mount_msg": "{} 已挂载到 {}",
+        "notify_eject_title": "USB 设备已弹出",
+        "notify_eject_msg": "{} 可以安全移除\n自动扫描已暂停",
+        "err_node_missing": "设备节点 {} 不存在",
+        "err_mount_failed": "无法挂载设备:\n{}",
+        "err_mount_error": "挂载过程中出错:\n{}",
+        "err_eject_failed": "无法卸载:\n{}",
+        "err_eject_error": "卸载出错:\n{}",
+        "err_dir_missing": "目录 {} 不存在",
+        "err_script_missing": "找不到脚本: {}",
+        "err_adb_connect": "无法连接 ADB 设备:\n{}",
+        "err_adb_error": "连接 ADB 设备出错:\n{}",
+        "err_adb_node_failed": "创建 ADB 设备节点失败:\n{}",
+        "err_adb_connect_title": "连接失败",
+        "err_title": "错误",
+        "err_eject_title": "弹出失败",
+        "info_title": "提示",
+        "already_running": "USB 管理器已在运行中",
+        "err_pyqt5": "错误: 需要安装 PyQt5\n请运行: sudo apt install python3-pyqt5",
+        "lang_label": "语言:",
+        "lang_zh": "中文",
+        "lang_en": "English",
+        "settings_label": "设置",
+    },
+    "en": {
+        "window_title": "Droidspaces USB Manager",
+        "title": "USB Manager",
+        "refresh": "Refresh",
+        "pause_scan": "Pause Scan",
+        "resume_scan": "Resume Scan",
+        "interval_label": "Interval:",
+        "interval_suffix": " s",
+        "col_device": "Device",
+        "col_size": "Size",
+        "col_fs": "Filesystem",
+        "col_status": "Status",
+        "col_action": "Action",
+        "ready": "Ready",
+        "connected": "Connected",
+        "disconnected": "Disconnected",
+        "mounted": "Mounted",
+        "unmounted": "Unmounted",
+        "unknown": "Unknown",
+        "open_dir": "Open Dir",
+        "eject": "Eject",
+        "mount": "Mount",
+        "connect": "Connect",
+        "scan_resumed": "Auto scan resumed",
+        "scan_paused": "Auto scan paused",
+        "eject_status": "Ejected {} - Auto scan paused, click Refresh to resume",
+        "mount_status": "Mounted {} at {}",
+        "auto_mount_status": "Auto mounted {} at {}",
+        "adb_connected": "ADB device connected",
+        "adb_node_created": "ADB device node {} created",
+        "status_storage": "{} storage device(s)",
+        "status_adb": "{} ADB device(s)",
+        "status_mounted": "{} partition(s) mounted",
+        "status_detected": "Detected {}",
+        "status_no_device": "No USB device detected",
+        "tray_tip": "USB Device Manager",
+        "tray_show": "Show Window",
+        "tray_refresh": "Refresh Devices",
+        "tray_quit": "Quit",
+        "notify_mount_title": "USB Device Mounted",
+        "notify_mount_msg": "{} mounted at {}",
+        "notify_eject_title": "USB Device Ejected",
+        "notify_eject_msg": "{} can be safely removed\nAuto scan paused",
+        "err_node_missing": "Device node {} does not exist",
+        "err_mount_failed": "Cannot mount device:\n{}",
+        "err_mount_error": "Mount error:\n{}",
+        "err_eject_failed": "Cannot unmount:\n{}",
+        "err_eject_error": "Unmount error:\n{}",
+        "err_dir_missing": "Directory {} does not exist",
+        "err_script_missing": "Script not found: {}",
+        "err_adb_connect": "Cannot connect ADB device:\n{}",
+        "err_adb_error": "ADB connect error:\n{}",
+        "err_adb_node_failed": "Failed to create ADB device node:\n{}",
+        "err_adb_connect_title": "Connect Failed",
+        "err_title": "Error",
+        "err_eject_title": "Eject Failed",
+        "info_title": "Info",
+        "already_running": "USB Manager is already running",
+        "err_pyqt5": "Error: PyQt5 is required\nRun: sudo apt install python3-pyqt5",
+        "lang_label": "Language:",
+        "lang_zh": "中文",
+        "lang_en": "English",
+        "settings_label": "Settings",
+    }
+}
+
+# 当前语言
+_current_lang = "zh"
+
+
+def detect_system_language():
+    """检测系统语言"""
+    try:
+        lang = locale.getdefaultlocale()[0] or ""
+        if lang.startswith("zh"):
+            return "zh"
+        return "en"
+    except:
+        return "zh"
+
+
+def load_config():
+    """加载配置"""
+    global _current_lang
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+                _current_lang = config.get("language", detect_system_language())
+                return config
+        except:
+            pass
+    _current_lang = detect_system_language()
+    return {"language": _current_lang}
+
+
+def save_config(config):
+    """保存配置"""
+    try:
+        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+    except:
+        pass
+
+
+def t(key, *args):
+    """翻译函数"""
+    text = TRANSLATIONS.get(_current_lang, TRANSLATIONS["zh"]).get(key, key)
+    if args:
+        return text.format(*args)
+    return text
 
 
 def get_usb_icon():
@@ -73,32 +255,26 @@ class ScanWorker(QThread):
         if not usb_base.exists():
             return devices
 
-        # 先收集所有 USB 存储设备的 USB 路径
         storage_usb_paths = set()
         scsi_base = Path("/sys/bus/scsi/devices")
         if scsi_base.exists():
             for scsi_dev in scsi_base.iterdir():
                 real_path = str(scsi_dev.resolve())
                 if "usb" in real_path:
-                    # 提取 USB 设备路径（如 usb2/2-1）
                     parts = real_path.split('/')
                     for i, part in enumerate(parts):
                         if part.startswith('usb') and i + 1 < len(parts):
                             storage_usb_paths.add(parts[i + 1])
 
         for usb_dev in usb_base.iterdir():
-            # 只扫描设备，跳过接口（格式：bus-port:interface）
             dev_name = usb_dev.name
             if ':' in dev_name:
                 continue
             if dev_name.startswith('usb'):
                 continue
-
-            # 排除 USB 存储设备
             if dev_name in storage_usb_paths:
                 continue
 
-            # 检查是否有设备描述文件
             product_file = usb_dev / "product"
             vendor_file = usb_dev / "idVendor"
             product_id_file = usb_dev / "idProduct"
@@ -120,10 +296,8 @@ class ScanWorker(QThread):
                 devnum = devnum_file.read_text().strip()
                 busnum = busnum_file.read_text().strip()
 
-                # 构建设备节点路径
                 node_path = f"/dev/bus/usb/{busnum.zfill(3)}/{devnum.zfill(3)}"
 
-                # 检查设备类
                 devclass_file = usb_dev / "bDeviceClass"
                 devclass = devclass_file.read_text().strip() if devclass_file.exists() else "00"
 
@@ -160,7 +334,6 @@ class ScanWorker(QThread):
             if not block_dir.exists():
                 continue
 
-            # 检查是否是 USB 设备
             real_path = str(scsi_dev.resolve())
             if "usb" not in real_path:
                 continue
@@ -198,11 +371,9 @@ class ScanWorker(QThread):
                         "partitions": []
                     }
 
-                    # 扫描分区
                     for item in block_dev.iterdir():
                         if not item.is_dir() or item == block_dev:
                             continue
-                        # 检查是否是分区目录（有 dev 文件）
                         part_dev_file = item / "dev"
                         if not part_dev_file.exists():
                             continue
@@ -213,7 +384,6 @@ class ScanWorker(QThread):
                         part_name = item.name
                         part_node = f"/dev/{part_name}"
 
-                        # 自动创建设备节点
                         self.create_device_node(part_node, part_major, part_minor)
 
                         part_size_file = item / "size"
@@ -274,46 +444,57 @@ class MainWindow(QMainWindow):
     def __init__(self, tray_icon=None):
         super().__init__()
         self.tray_icon = tray_icon
-        self.setWindowTitle("Droidspaces USB 管理器")
-        self.setMinimumSize(750, 450)
+        self.setWindowTitle(t("window_title"))
+        self.setMinimumSize(1100, 600)
+        self.resize(1100, 600)
         self.setWindowIcon(get_usb_icon())
 
-        # 中央部件
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+        self.layout = QVBoxLayout(central)
 
         # 标题栏
-        title_layout = QHBoxLayout()
-        title = QLabel("USB 管理器")
-        title.setFont(QFont("", 16, QFont.Bold))
-        title_layout.addWidget(title)
-        title_layout.addStretch()
+        self.title_layout = QHBoxLayout()
+        self.title_label = QLabel(t("title"))
+        self.title_label.setFont(QFont("", 16, QFont.Bold))
+        self.title_layout.addWidget(self.title_label)
+        self.title_layout.addStretch()
 
-        refresh_btn = QPushButton("刷新")
-        refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
-        refresh_btn.clicked.connect(self.resume_and_scan)
-        title_layout.addWidget(refresh_btn)
+        # 语言切换
+        self.lang_label = QLabel(t("lang_label"))
+        self.title_layout.addWidget(self.lang_label)
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItem("中文", "zh")
+        self.lang_combo.addItem("English", "en")
+        self.lang_combo.setCurrentIndex(0 if _current_lang == "zh" else 1)
+        self.lang_combo.currentIndexChanged.connect(self.on_language_changed)
+        self.title_layout.addWidget(self.lang_combo)
 
-        # 暂停/恢复扫描按钮
-        self.pause_btn = QPushButton("暂停扫描")
+        self.refresh_btn = QPushButton(t("refresh"))
+        self.refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        self.refresh_btn.clicked.connect(self.resume_and_scan)
+        self.title_layout.addWidget(self.refresh_btn)
+
+        self.pause_btn = QPushButton(t("pause_scan"))
         self.pause_btn.clicked.connect(self.toggle_scan)
-        title_layout.addWidget(self.pause_btn)
+        self.title_layout.addWidget(self.pause_btn)
 
-        # 刷新时长设置
-        title_layout.addWidget(QLabel("刷新间隔:"))
+        self.interval_label_widget = QLabel(t("interval_label"))
+        self.title_layout.addWidget(self.interval_label_widget)
         self.interval_spin = QSpinBox()
         self.interval_spin.setRange(1, 60)
         self.interval_spin.setValue(3)
-        self.interval_spin.setSuffix(" 秒")
+        self.interval_spin.setSuffix(t("interval_suffix"))
         self.interval_spin.valueChanged.connect(self.update_scan_interval)
-        title_layout.addWidget(self.interval_spin)
+        self.title_layout.addWidget(self.interval_spin)
 
-        layout.addLayout(title_layout)
+        self.layout.addLayout(self.title_layout)
 
         # 设备树
         self.device_tree = QTreeWidget()
-        self.device_tree.setHeaderLabels(["设备", "大小", "文件系统", "状态", "操作"])
+        self.device_tree.setHeaderLabels([
+            t("col_device"), t("col_size"), t("col_fs"), t("col_status"), t("col_action")
+        ])
         self.device_tree.setColumnWidth(0, 220)
         self.device_tree.setColumnWidth(1, 80)
         self.device_tree.setColumnWidth(2, 80)
@@ -321,25 +502,48 @@ class MainWindow(QMainWindow):
         self.device_tree.setColumnWidth(4, 200)
         self.device_tree.setAlternatingRowColors(True)
         self.device_tree.setRootIsDecorated(True)
-        layout.addWidget(self.device_tree)
+        self.layout.addWidget(self.device_tree)
 
         # 状态栏
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("就绪")
+        self.status_bar.showMessage(t("ready"))
 
-        # 存储设备列表（用于自动挂载检测）
         self.known_devices = set()
-
-        # 扫描状态
         self.scan_paused = False
 
-        # 定时扫描
         self.scan_timer = QTimer()
         self.scan_timer.timeout.connect(self.scan_devices)
         self.scan_timer.start(3000)
 
-        # 初始扫描
+        self.scan_devices()
+
+    def on_language_changed(self, index):
+        """语言切换"""
+        global _current_lang
+        new_lang = self.lang_combo.itemData(index)
+        if new_lang == _current_lang:
+            return
+        _current_lang = new_lang
+        save_config({"language": new_lang})
+        self.retranslate_ui()
+
+    def retranslate_ui(self):
+        """更新所有 UI 文本"""
+        self.setWindowTitle(t("window_title"))
+        self.title_label.setText(t("title"))
+        self.refresh_btn.setText(t("refresh"))
+        self.pause_btn.setText(t("pause_scan") if not self.scan_paused else t("resume_scan"))
+        self.interval_label_widget.setText(t("interval_label"))
+        self.interval_spin.setSuffix(t("interval_suffix"))
+        self.lang_label.setText(t("lang_label"))
+        self.device_tree.setHeaderLabels([
+            t("col_device"), t("col_size"), t("col_fs"), t("col_status"), t("col_action")
+        ])
+        self.status_bar.showMessage(t("ready"))
+        if self.tray_icon:
+            self.tray_icon.retranslate_menu()
+        # 刷新设备树
         self.scan_devices()
 
     def scan_devices(self):
@@ -353,8 +557,8 @@ class MainWindow(QMainWindow):
     def resume_and_scan(self):
         """恢复扫描并立即扫描"""
         self.scan_paused = False
-        self.pause_btn.setText("暂停扫描")
-        self.status_bar.showMessage("已恢复自动扫描")
+        self.pause_btn.setText(t("pause_scan"))
+        self.status_bar.showMessage(t("scan_resumed"))
         self.scan_devices()
 
     def toggle_scan(self):
@@ -363,8 +567,8 @@ class MainWindow(QMainWindow):
             self.resume_and_scan()
         else:
             self.scan_paused = True
-            self.pause_btn.setText("恢复扫描")
-            self.status_bar.showMessage("自动扫描已暂停")
+            self.pause_btn.setText(t("resume_scan"))
+            self.status_bar.showMessage(t("scan_paused"))
 
     def update_scan_interval(self, value):
         """更新扫描间隔"""
@@ -372,7 +576,6 @@ class MainWindow(QMainWindow):
 
     def refresh_ui(self):
         """手动刷新界面（不触发自动扫描）"""
-        # 重新扫描设备信息但不触发自动挂载
         self.refresh_worker = ScanWorker()
         self.refresh_worker.finished.connect(self.update_device_tree)
         self.refresh_worker.start()
@@ -386,73 +589,64 @@ class MainWindow(QMainWindow):
         mounted = 0
         current_devices = set()
 
-        # 显示 USB 存储设备
         for device in storage_devices:
             total_storage += 1
             current_devices.add(device['node'])
 
-            # 设备根节点
             dev_item = QTreeWidgetItem(self.device_tree)
             dev_item.setText(0, f"{device['model']} ({device['vendor']})")
             dev_item.setText(1, f"{device['size_gb']} GB")
             dev_item.setText(2, "")
-            dev_item.setText(3, "已连接")
+            dev_item.setText(3, t("connected"))
             dev_item.setIcon(0, self.style().standardIcon(QStyle.SP_ComputerIcon))
             dev_item.setExpanded(True)
 
-            # 分区
             for part in device['partitions']:
                 current_devices.add(part['node'])
 
                 part_item = QTreeWidgetItem(dev_item)
                 part_item.setText(0, part['name'])
                 part_item.setText(1, f"{part['size_gb']} GB")
-                part_item.setText(2, part.get('fs_type', '') or '未知')
+                part_item.setText(2, part.get('fs_type', '') or t("unknown"))
 
                 if part['mounted']:
-                    part_item.setText(3, "已挂载")
+                    part_item.setText(3, t("mounted"))
                     part_item.setForeground(3, QColor("#4CAF50"))
                     mounted += 1
 
-                    # 操作按钮容器
                     btn_widget = QWidget()
                     btn_layout = QHBoxLayout(btn_widget)
                     btn_layout.setContentsMargins(2, 2, 2, 2)
 
-                    open_btn = QPushButton("打开目录")
+                    open_btn = QPushButton(t("open_dir"))
                     open_btn.clicked.connect(lambda checked, mp=part['mount_point']: self.open_directory(mp))
                     btn_layout.addWidget(open_btn)
 
-                    eject_btn = QPushButton("弹出")
+                    eject_btn = QPushButton(t("eject"))
                     eject_btn.clicked.connect(lambda checked, p=part: self.eject_device(p))
                     btn_layout.addWidget(eject_btn)
 
                     self.device_tree.setItemWidget(part_item, 4, btn_widget)
                 else:
-                    part_item.setText(3, "未挂载")
+                    part_item.setText(3, t("unmounted"))
                     part_item.setForeground(3, QColor("#FF9800"))
 
-                    # 自动挂载新设备
                     if part['node'] not in self.known_devices:
                         self.auto_mount(part)
                     else:
-                        # 显示挂载按钮
-                        mount_btn = QPushButton("挂载")
+                        mount_btn = QPushButton(t("mount"))
                         mount_btn.clicked.connect(lambda checked, p=part: self.mount_partition(p))
                         self.device_tree.setItemWidget(part_item, 4, mount_btn)
 
-        # 显示 ADB 设备
         for device in adb_devices:
             total_adb += 1
 
-            # 检查设备节点是否存在
             busnum = device['busnum'].zfill(3)
             devnum = device['devnum'].zfill(3)
             node_path = f"/dev/bus/usb/{busnum}/{devnum}"
             device['node'] = node_path
             device['exists'] = os.path.exists(node_path)
 
-            # 如果节点不存在，自动运行脚本创建
             if not device['exists']:
                 self.auto_connect_adb(device)
                 device['exists'] = os.path.exists(node_path)
@@ -463,43 +657,40 @@ class MainWindow(QMainWindow):
             dev_item.setText(2, f"USB {device['devclass']}")
 
             if device['exists']:
-                dev_item.setText(3, "已连接")
+                dev_item.setText(3, t("connected"))
                 dev_item.setForeground(3, QColor("#4CAF50"))
             else:
-                dev_item.setText(3, "未连接")
+                dev_item.setText(3, t("disconnected"))
                 dev_item.setForeground(3, QColor("#FF9800"))
 
-                # 连接按钮
                 btn_widget = QWidget()
                 btn_layout = QHBoxLayout(btn_widget)
                 btn_layout.setContentsMargins(2, 2, 2, 2)
 
-                connect_btn = QPushButton("连接")
+                connect_btn = QPushButton(t("connect"))
                 connect_btn.clicked.connect(lambda checked, d=device: self.connect_adb(d))
                 btn_layout.addWidget(connect_btn)
 
                 self.device_tree.setItemWidget(dev_item, 4, btn_widget)
 
-        # 更新已知设备列表
         self.known_devices = current_devices
 
-        # 更新状态栏
         status_parts = []
         if total_storage > 0:
-            status_parts.append(f"{total_storage} 个存储设备")
+            status_parts.append(t("status_storage", total_storage))
         if total_adb > 0:
-            status_parts.append(f"{total_adb} 个 ADB 设备")
+            status_parts.append(t("status_adb", total_adb))
         if mounted > 0:
-            status_parts.append(f"{mounted} 个分区已挂载")
+            status_parts.append(t("status_mounted", mounted))
 
         if status_parts:
-            status = "检测到 " + "，".join(status_parts)
+            status = t("status_detected", "，".join(status_parts))
         else:
-            status = "未检测到 USB 设备"
+            status = t("status_no_device")
 
         self.status_bar.showMessage(status)
         if self.tray_icon:
-            self.tray_icon.setToolTip(f"USB 设备管理\n{status}")
+            self.tray_icon.setToolTip(f"{t('tray_tip')}\n{status}")
 
     def create_device_node(self, node, major, minor):
         """创建设备节点"""
@@ -526,49 +717,44 @@ class MainWindow(QMainWindow):
         node_path = f"/dev/bus/usb/{busnum}/{devnum}"
 
         try:
-            # 创建目录
             subprocess.run(["sudo", "-n", "/usr/bin/mkdir", "-p", node_dir], capture_output=True)
-            # 创建字符设备节点（major=188 是 USB 字符设备）
             subprocess.run(
                 ["sudo", "-n", "/usr/bin/mknod", "-m", "666", node_path, "c", "188", f"{int(busnum)*128+int(devnum)}"],
                 capture_output=True
             )
             subprocess.run(["sudo", "-n", "/usr/bin/chmod", "666", node_path], capture_output=True)
 
-            self.status_bar.showMessage(f"已创建 ADB 设备节点 {node_path}")
-            self.scan_devices()  # 刷新界面
+            self.status_bar.showMessage(t("adb_node_created", node_path))
+            self.scan_devices()
         except Exception as e:
-            QMessageBox.warning(self, "错误", f"创建 ADB 设备节点失败:\n{str(e)}")
+            QMessageBox.warning(self, t("err_title"), t("err_adb_node_failed", str(e)))
 
     def connect_adb(self, device):
-        """连接 ADB 设备（运行 usb-passthrough.sh）"""
+        """连接 ADB 设备"""
         script_path = os.path.join(os.path.dirname(__file__), "usb-passthrough.sh")
         if not os.path.exists(script_path):
-            QMessageBox.warning(self, "错误", f"找不到脚本: {script_path}")
+            QMessageBox.warning(self, t("err_title"), t("err_script_missing", script_path))
             return
 
         try:
-            # 运行脚本创建设备节点
             result = subprocess.run(
                 ["sudo", "-n", "bash", script_path],
                 capture_output=True, text=True
             )
             if result.returncode == 0:
-                self.status_bar.showMessage(f"ADB 设备已连接")
-                self.scan_devices()  # 刷新界面
+                self.status_bar.showMessage(t("adb_connected"))
+                self.scan_devices()
             else:
-                QMessageBox.warning(self, "连接失败", f"无法连接 ADB 设备:\n{result.stderr}")
+                QMessageBox.warning(self, t("err_adb_connect_title"), t("err_adb_connect", result.stderr))
         except Exception as e:
-            QMessageBox.warning(self, "错误", f"连接 ADB 设备出错:\n{str(e)}")
+            QMessageBox.warning(self, t("err_title"), t("err_adb_error", str(e)))
 
     def auto_connect_adb(self, device):
-        """自动连接 ADB 设备（静默运行）"""
+        """自动连接 ADB 设备"""
         script_path = os.path.join(os.path.dirname(__file__), "usb-passthrough.sh")
         if not os.path.exists(script_path):
             return
-
         try:
-            # 静默运行脚本创建设备节点
             subprocess.run(
                 ["sudo", "-n", "bash", script_path],
                 capture_output=True, text=True
@@ -583,19 +769,15 @@ class MainWindow(QMainWindow):
         minor = partition['minor']
         fs_type = partition.get('fs_type', '')
 
-        # 创建设备节点
         self.create_device_node(node, major, minor)
 
         if not os.path.exists(node):
             return
 
-        # 创建挂载点
         mount_point = MOUNT_BASE
         os.makedirs(mount_point, exist_ok=True)
 
-        # 根据文件系统类型选择挂载选项
         if fs_type in ['ntfs', 'ntfs3']:
-            # NTFS 需要 sudo
             cmd = f"sudo -n /usr/bin/mount -t ntfs-3g -o rw,no_def_opts,allow_other,umask=000 {node} {mount_point}"
         elif fs_type == 'exfat':
             cmd = f"sudo -n /usr/bin/mount -t exfat -o rw,uid={os.getuid()},gid={os.getgid()},umask=000 {node} {mount_point}"
@@ -607,18 +789,16 @@ class MainWindow(QMainWindow):
         try:
             result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
             if result.returncode == 0:
-                self.status_bar.showMessage(f"已自动挂载 {node} 到 {mount_point}")
-                self.scan_devices()  # 刷新列表
-                # 发送通知
+                self.status_bar.showMessage(t("auto_mount_status", node, mount_point))
+                self.scan_devices()
                 if self.tray_icon:
                     self.tray_icon.showMessage(
-                        "USB 设备已挂载",
-                        f"{partition['name']} 已挂载到 {mount_point}",
+                        t("notify_mount_title"),
+                        t("notify_mount_msg", partition['name'], mount_point),
                         QSystemTrayIcon.Information,
                         3000
                     )
             else:
-                # 自动挂载失败，可能是 NTFS 需要密码
                 print(f"Auto mount failed: {result.stderr}")
         except Exception as e:
             print(f"Auto mount error: {e}")
@@ -629,11 +809,10 @@ class MainWindow(QMainWindow):
         major = partition['major']
         minor = partition['minor']
 
-        # 创建设备节点
         self.create_device_node(node, major, minor)
 
         if not os.path.exists(node):
-            QMessageBox.warning(self, "错误", f"设备节点 {node} 不存在")
+            QMessageBox.warning(self, t("err_title"), t("err_node_missing", node))
             return
 
         mount_point = MOUNT_BASE
@@ -648,16 +827,14 @@ class MainWindow(QMainWindow):
         try:
             result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
             if result.returncode == 0:
-                # 设置挂载点权限
                 subprocess.run(["sudo", "-n", "/usr/bin/chmod", "-R", "777", mount_point])
-                self.status_bar.showMessage(f"已挂载 {node} 到 {mount_point}")
-                # 恢复扫描并刷新界面
+                self.status_bar.showMessage(t("mount_status", node, mount_point))
                 self.scan_paused = False
                 self.scan_devices()
             else:
-                QMessageBox.warning(self, "挂载失败", f"无法挂载设备:\n{result.stderr}")
+                QMessageBox.warning(self, t("err_mount_failed", result.stderr))
         except Exception as e:
-            QMessageBox.warning(self, "错误", f"挂载过程中出错:\n{str(e)}")
+            QMessageBox.warning(self, t("err_title"), t("err_mount_error", str(e)))
 
     def eject_device(self, partition):
         """弹出设备"""
@@ -666,33 +843,28 @@ class MainWindow(QMainWindow):
 
         if mount_point:
             try:
-                # 先卸载
                 result = subprocess.run(
                     ["sudo", "-n", "/usr/bin/umount", mount_point],
                     capture_output=True, text=True
                 )
                 if result.returncode != 0:
-                    QMessageBox.warning(self, "弹出失败", f"无法卸载:\n{result.stderr}")
+                    QMessageBox.warning(self, t("err_eject_title"), t("err_eject_failed", result.stderr))
                     return
             except Exception as e:
-                QMessageBox.warning(self, "错误", f"卸载出错:\n{str(e)}")
+                QMessageBox.warning(self, t("err_title"), t("err_eject_error", str(e)))
                 return
 
-        # 暂停自动扫描
         self.scan_paused = True
-
-        # 从已知设备中移除
         self.known_devices.discard(node)
 
-        self.status_bar.showMessage(f"已弹出 {node} - 自动扫描已暂停，点击 刷新 恢复")
+        self.status_bar.showMessage(t("eject_status", node))
         if self.tray_icon:
             self.tray_icon.showMessage(
-                "USB 设备已弹出",
-                f"{partition['name']} 可以安全移除\n自动扫描已暂停",
+                t("notify_eject_title"),
+                t("notify_eject_msg", partition['name']),
                 QSystemTrayIcon.Information,
                 3000
             )
-        # 手动刷新界面（因为扫描已暂停）
         self.refresh_ui()
 
     def open_directory(self, path):
@@ -701,7 +873,6 @@ class MainWindow(QMainWindow):
             if os.access(path, os.R_OK):
                 subprocess.Popen(["dolphin", path])
             else:
-                # 使用 pkexec 并传递环境变量
                 env = os.environ.copy()
                 subprocess.Popen(
                     ["pkexec", "env",
@@ -712,7 +883,7 @@ class MainWindow(QMainWindow):
                     env=env
                 )
         else:
-            QMessageBox.information(self, "提示", f"目录 {path} 不存在")
+            QMessageBox.information(self, t("info_title"), t("err_dir_missing", path))
 
 
 class UsbTrayIcon(QSystemTrayIcon):
@@ -720,38 +891,40 @@ class UsbTrayIcon(QSystemTrayIcon):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setIcon(get_usb_icon())
-        self.setToolTip("USB 存储设备管理")
+        self.setToolTip(t("tray_tip"))
 
-        # 先创建主窗口
         self.main_window = MainWindow(self)
-
-        # 创建菜单
         self.create_menu()
-
-        # 连接信号
         self.activated.connect(self.on_activated)
 
     def create_menu(self):
         """创建右键菜单"""
-        menu = QMenu()
+        self.menu = QMenu()
 
-        show_action = QAction("显示主窗口", menu)
-        show_action.triggered.connect(self.show_main_window)
-        menu.addAction(show_action)
+        self.show_action = QAction(t("tray_show"), self.menu)
+        self.show_action.triggered.connect(self.show_main_window)
+        self.menu.addAction(self.show_action)
 
-        menu.addSeparator()
+        self.menu.addSeparator()
 
-        refresh_action = QAction("刷新设备", menu)
-        refresh_action.triggered.connect(self.main_window.scan_devices)
-        menu.addAction(refresh_action)
+        self.refresh_action = QAction(t("tray_refresh"), self.menu)
+        self.refresh_action.triggered.connect(self.main_window.scan_devices)
+        self.menu.addAction(self.refresh_action)
 
-        menu.addSeparator()
+        self.menu.addSeparator()
 
-        quit_action = QAction("退出", menu)
-        quit_action.triggered.connect(QApplication.quit)
-        menu.addAction(quit_action)
+        self.quit_action = QAction(t("tray_quit"), self.menu)
+        self.quit_action.triggered.connect(QApplication.quit)
+        self.menu.addAction(self.quit_action)
 
-        self.setContextMenu(menu)
+        self.setContextMenu(self.menu)
+
+    def retranslate_menu(self):
+        """更新菜单文本"""
+        self.show_action.setText(t("tray_show"))
+        self.refresh_action.setText(t("tray_refresh"))
+        self.quit_action.setText(t("tray_quit"))
+        self.setToolTip(t("tray_tip"))
 
     def show_main_window(self):
         """显示主窗口"""
@@ -769,18 +942,20 @@ def main():
     try:
         from PyQt5.QtWidgets import QApplication
     except ImportError:
-        print("错误: 需要安装 PyQt5")
-        print("请运行: sudo apt install python3-pyqt5")
+        print(t("err_pyqt5"))
         sys.exit(1)
 
-    # 单实例检查（使用文件锁）
+    # 加载配置（自动检测语言）
+    load_config()
+
+    # 单实例检查
     lock_file = open(LOCK_FILE, 'w')
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         lock_file.write(str(os.getpid()))
         lock_file.flush()
     except (IOError, OSError):
-        print("USB 管理器已在运行中")
+        print(t("already_running"))
         sys.exit(0)
 
     app = QApplication(sys.argv)
@@ -793,7 +968,6 @@ def main():
 
     ret = app.exec_()
 
-    # 清理
     fcntl.flock(lock_file, fcntl.LOCK_UN)
     lock_file.close()
     try:

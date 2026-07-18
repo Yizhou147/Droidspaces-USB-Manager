@@ -7,5 +7,6 @@ Exec=python3 /usr/share/usb-manager/usb-manager.py
 Icon=drive-removable-media-usb
 Terminal=false
 Type=Application
-Categories=System;
+Categories=GNOME;Utility;System;
+Keywords=usb;storage;mount;adb;android;
 StartupNotify=true
