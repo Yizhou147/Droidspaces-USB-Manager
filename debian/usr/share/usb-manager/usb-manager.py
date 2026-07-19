@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTreeWidget, QTreeWidgetItem,
     QMessageBox, QStatusBar, QStyle, QSystemTrayIcon, QMenu, QAction,
-    QSpinBox, QComboBox
+    QSpinBox, QComboBox, QDialog
 )
 from PyQt5.QtGui import QIcon, QColor, QFont
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
@@ -97,6 +97,13 @@ TRANSLATIONS = {
         "lang_zh": "中文",
         "lang_en": "English",
         "settings_label": "设置",
+        "about": "关于",
+        "about_title": "关于",
+        "about_version": "版本",
+        "about_author": "作者",
+        "about_project": "项目地址",
+        "about_license": "许可证",
+        "about_description": "自动检测、挂载 USB 存储设备\n支持弹出和打开目录",
     },
     "en": {
         "window_title": "Droidspaces USB Manager",
@@ -161,6 +168,13 @@ TRANSLATIONS = {
         "lang_zh": "中文",
         "lang_en": "English",
         "settings_label": "Settings",
+        "about": "About",
+        "about_title": "About",
+        "about_version": "Version",
+        "about_author": "Author",
+        "about_project": "Project",
+        "about_license": "License",
+        "about_description": "Auto-detect and mount USB storage devices\nSupport eject and open directory",
     }
 }
 
@@ -417,7 +431,7 @@ class ScanWorker(QThread):
         try:
             result = subprocess.run(["mount"], capture_output=True, text=True)
             for line in result.stdout.splitlines():
-                if device in line:
+                if line.startswith(device + " "):
                     parts = line.split()
                     if len(parts) >= 3:
                         return parts[2]
@@ -509,6 +523,12 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage(t("ready"))
 
+        # 关于按钮（右下角）
+        self.about_btn = QPushButton(t("about"))
+        self.about_btn.clicked.connect(self.show_about)
+        self.status_bar.addPermanentWidget(self.about_btn)
+        self.status_bar.setStyleSheet("QStatusBar::item { border: none; }")
+
         self.known_devices = set()
         self.scan_paused = False
 
@@ -537,6 +557,7 @@ class MainWindow(QMainWindow):
         self.interval_label_widget.setText(t("interval_label"))
         self.interval_spin.setSuffix(t("interval_suffix"))
         self.lang_label.setText(t("lang_label"))
+        self.about_btn.setText(t("about"))
         self.device_tree.setHeaderLabels([
             t("col_device"), t("col_size"), t("col_fs"), t("col_status"), t("col_action")
         ])
@@ -774,7 +795,7 @@ class MainWindow(QMainWindow):
         if not os.path.exists(node):
             return
 
-        mount_point = MOUNT_BASE
+        mount_point = os.path.join(MOUNT_BASE, partition['name'])
         os.makedirs(mount_point, exist_ok=True)
 
         if fs_type in ['ntfs', 'ntfs3']:
@@ -790,7 +811,6 @@ class MainWindow(QMainWindow):
             result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
             if result.returncode == 0:
                 self.status_bar.showMessage(t("auto_mount_status", node, mount_point))
-                self.scan_devices()
                 if self.tray_icon:
                     self.tray_icon.showMessage(
                         t("notify_mount_title"),
@@ -815,7 +835,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, t("err_title"), t("err_node_missing", node))
             return
 
-        mount_point = MOUNT_BASE
+        mount_point = os.path.join(MOUNT_BASE, partition['name'])
         os.makedirs(mount_point, exist_ok=True)
 
         fs_type = partition.get('fs_type', '')
@@ -884,6 +904,68 @@ class MainWindow(QMainWindow):
                 )
         else:
             QMessageBox.information(self, t("info_title"), t("err_dir_missing", path))
+
+    def show_about(self):
+        """显示关于对话框"""
+        if hasattr(self, '_about_dialog') and self._about_dialog.isVisible():
+            self._about_dialog.raise_()
+            self._about_dialog.activateWindow()
+            return
+        self._about_dialog = QDialog(self)
+        self._about_dialog.setWindowTitle(t("about_title"))
+        self._about_dialog.setFixedSize(450, 260)
+        self._about_dialog.setWindowFlags(self._about_dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(self._about_dialog)
+        layout.setSpacing(8)
+
+        name_label = QLabel("Droidspaces USB Manager")
+        name_label.setFont(QFont("", 10, QFont.Bold))
+        name_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(name_label)
+
+        version_label = QLabel(f"{t('about_version')}: v1.2")
+        version_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(version_label)
+
+        layout.addSpacing(6)
+
+        # 作者
+        author_row = QHBoxLayout()
+        author_row.addStretch()
+        author_row.addWidget(QLabel(f"{t('about_author')}:"))
+        author_btn = QPushButton("Yizhou147")
+        author_btn.setCursor(Qt.PointingHandCursor)
+        author_btn.setStyleSheet("QPushButton { border: none; color: #2196F3; }")
+        author_btn.clicked.connect(lambda: subprocess.Popen(["xdg-open", "https://github.com/Yizhou147"]))
+        author_row.addWidget(author_btn)
+        author_row.addStretch()
+        layout.addLayout(author_row)
+
+        # 项目地址
+        project_row = QHBoxLayout()
+        project_row.addStretch()
+        project_row.addWidget(QLabel(f"{t('about_project')}:"))
+        project_btn = QPushButton("GitHub")
+        project_btn.setCursor(Qt.PointingHandCursor)
+        project_btn.setStyleSheet("QPushButton { border: none; color: #2196F3; }")
+        project_btn.clicked.connect(lambda: subprocess.Popen(["xdg-open", "https://github.com/Yizhou147/Droidspaces-USB-Manager"]))
+        project_row.addWidget(project_btn)
+        project_row.addStretch()
+        layout.addLayout(project_row)
+
+        layout.addStretch()
+
+        close_btn = QPushButton("OK")
+        close_btn.setFixedWidth(80)
+        close_btn.clicked.connect(self._about_dialog.accept)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        self._about_dialog.show()
 
 
 class UsbTrayIcon(QSystemTrayIcon):
@@ -955,7 +1037,8 @@ def main():
         lock_file.write(str(os.getpid()))
         lock_file.flush()
     except (IOError, OSError):
-        print(t("already_running"))
+        app = QApplication(sys.argv)
+        QMessageBox.warning(None, t("info_title"), t("already_running"))
         sys.exit(0)
 
     app = QApplication(sys.argv)
