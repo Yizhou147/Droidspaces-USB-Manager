@@ -227,7 +227,13 @@ def t(key, *args):
 
 
 def get_usb_icon():
-    """获取 KDE 自带的 USB 图标"""
+    """获取 USB 图标（优先本地，回退系统主题）"""
+    # 优先使用项目自带的图标
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    icon_path = os.path.join(script_dir, "icons", "usb-manager.svg")
+    if os.path.exists(icon_path):
+        return QIcon(icon_path)
+    # 回退到系统主题
     for theme_name in ["drive-removable-media-usb", "drive-removable-media", "generic-usb"]:
         icon = QIcon.fromTheme(theme_name)
         if not icon.isNull():

@@ -1,0 +1,19 @@
+Icon License Notice
+===================
+
+The SVG icons in this directory are derived from the KDE Breeze icon theme.
+
+Source: https://github.com/KDE/breeze-icons
+License: GNU Lesser General Public License v3.0 (LGPL-3.0)
+         or GNU Lesser General Public License v2.1 or later (LGPL-2.1-or-later)
+
+Original icon name: drive-removable-media-usb
+Renamed to: usb-manager.svg, usb-manager-{size}.svg, usb-manager-symbolic.svg
+
+These icons are used in accordance with the LGPL license terms.
+The icons remain under their original LGPL license.
+The rest of the project is licensed under the MIT License.
+
+For the full license text, see:
+- https://www.gnu.org/licenses/lgpl-3.0.html
+- https://www.gnu.org/licenses/lgpl-2.1.html
