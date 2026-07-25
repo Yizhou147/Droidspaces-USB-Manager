@@ -229,17 +229,17 @@ def t(key, *args):
 def get_usb_icon(symbolic=False):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if symbolic:
-        icon_path = os.path.join(script_dir, "icons", "usb-manager-symbolic.svg")
-        if os.path.exists(icon_path):
-            return QIcon(icon_path)
-        icon = QIcon.fromTheme("drive-removable-media-usb-symbolic")
+        icon = QIcon.fromTheme('drive-removable-media-usb-symbolic')
         if not icon.isNull():
             return icon
-    else:
-        icon_path = os.path.join(script_dir, "icons", "usb-manager.svg")
+        icon_path = os.path.join(script_dir, 'icons', 'usb-manager-symbolic.svg')
         if os.path.exists(icon_path):
             return QIcon(icon_path)
-        for theme_name in ["drive-removable-media-usb", "drive-removable-media", "generic-usb"]:
+    else:
+        icon_path = os.path.join(script_dir, 'icons', 'usb-manager.svg')
+        if os.path.exists(icon_path):
+            return QIcon(icon_path)
+        for theme_name in ['drive-removable-media-usb', 'drive-removable-media', 'generic-usb']:
             icon = QIcon.fromTheme(theme_name)
             if not icon.isNull():
                 return icon
