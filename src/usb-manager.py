@@ -226,19 +226,25 @@ def t(key, *args):
     return text
 
 
-def get_usb_icon():
-    """获取 USB 图标（优先本地，回退系统主题）"""
-    # 优先使用项目自带的图标
+def get_usb_icon(symbolic=False):
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    icon_path = os.path.join(script_dir, "icons", "usb-manager.svg")
-    if os.path.exists(icon_path):
-        return QIcon(icon_path)
-    # 回退到系统主题
-    for theme_name in ["drive-removable-media-usb", "drive-removable-media", "generic-usb"]:
-        icon = QIcon.fromTheme(theme_name)
+    if symbolic:
+        icon_path = os.path.join(script_dir, "icons", "usb-manager-symbolic.svg")
+        if os.path.exists(icon_path):
+            return QIcon(icon_path)
+        icon = QIcon.fromTheme("drive-removable-media-usb-symbolic")
         if not icon.isNull():
             return icon
+    else:
+        icon_path = os.path.join(script_dir, "icons", "usb-manager.svg")
+        if os.path.exists(icon_path):
+            return QIcon(icon_path)
+        for theme_name in ["drive-removable-media-usb", "drive-removable-media", "generic-usb"]:
+            icon = QIcon.fromTheme(theme_name)
+            if not icon.isNull():
+                return icon
     return QApplication.style().standardIcon(QStyle.SP_DriveFDIcon)
+
 
 
 class ScanWorker(QThread):
@@ -978,7 +984,7 @@ class UsbTrayIcon(QSystemTrayIcon):
     """系统托盘图标"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setIcon(get_usb_icon())
+        self.setIcon(get_usb_icon(symbolic=True))
         self.setToolTip(t("tray_tip"))
 
         self.main_window = MainWindow(self)
