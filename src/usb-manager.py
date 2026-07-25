@@ -491,7 +491,7 @@ class MainWindow(QMainWindow):
         self.title_layout.addWidget(self.lang_combo)
 
         self.refresh_btn = QPushButton(t("refresh"))
-        self.refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        self.refresh_btn.setIcon(QIcon.fromTheme("view-refresh", self.style().standardIcon(QStyle.SP_BrowserReload)))
         self.refresh_btn.clicked.connect(self.resume_and_scan)
         self.title_layout.addWidget(self.refresh_btn)
 
