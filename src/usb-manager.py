@@ -9,7 +9,6 @@ import os
 import shutil
 import subprocess
 import fcntl
-import locale
 import json
 from pathlib import Path
 
@@ -186,14 +185,14 @@ _current_lang = "zh"
 
 
 def detect_system_language():
-    """检测系统语言"""
-    try:
-        lang = locale.getdefaultlocale()[0] or ""
+    """检测系统语言（基于 locale 环境变量，避免使用已弃用的 getdefaultlocale）"""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        lang = os.environ.get(var) or ""
         if lang.startswith("zh"):
             return "zh"
-        return "en"
-    except:
-        return "zh"
+        if lang:
+            return "en"
+    return "zh"
 
 
 def load_config():
