@@ -69,7 +69,7 @@ sudo bash install.sh
 - 将桌面用户加入 `ntfsusb` 组，解决新版 ntfs-3g 挂载 NTFS 卷的权限问题
 - `--user USER` 可指定桌面用户
 
-> 该脚本同样存在于 [Droidspaces-rootfs-KDE-builder](https://github.com/Yizhou147/Droidspaces-rootfs-KDE-builder) 仓库的 `scripts/install-usb-manager.sh`，供构建容器镜像时使用。
+> 该脚本来源于 [Droidspaces-rootfs-KDE-builder](https://github.com/Goldzxcbug/Droidspaces-rootfs-KDE-builder) 仓库的 `scripts/install-usb-manager.sh`，供构建容器镜像时使用。
 
 ## 使用方法
 
