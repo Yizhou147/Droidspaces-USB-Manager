@@ -54,6 +54,11 @@ sudo chmod 440 /etc/sudoers.d/usb-storage
 项目内置跨发行版安装脚本 `install.sh`，自动检测 apt / dnf / pacman 并安装依赖，支持 Debian/Ubuntu、Arch、Fedora：
 
 ```bash
+# 克隆仓库（本机直连 GitHub 不稳定时使用镜像站）
+git clone https://gh-proxy.com/https://github.com/Yizhou147/Droidspaces-USB-Manager.git
+cd Droidspaces-USB-Manager
+
+# 运行安装脚本
 sudo bash install.sh
 ```
 
