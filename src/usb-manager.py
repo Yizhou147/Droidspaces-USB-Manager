@@ -848,7 +848,7 @@ class MainWindow(QMainWindow):
         os.makedirs(mount_point, exist_ok=True)
 
         if fs_type in ['ntfs', 'ntfs3']:
-            cmd = f"sudo -n /usr/bin/mount -t ntfs-3g -o rw,no_def_opts,allow_other,umask=000 {node} {mount_point}"
+            cmd = f"sudo -n /usr/bin/mount -t ntfs-3g -o rw,no_def_opts,allow_other,uid={os.getuid()},gid={os.getgid()},umask=000 {node} {mount_point}"
         elif fs_type == 'exfat':
             cmd = f"sudo -n /usr/bin/mount -t exfat -o rw,uid={os.getuid()},gid={os.getgid()},umask=000 {node} {mount_point}"
         elif fs_type in ['vfat', 'fat32']:
@@ -889,7 +889,7 @@ class MainWindow(QMainWindow):
 
         fs_type = partition.get('fs_type', '')
         if fs_type in ['ntfs', 'ntfs3']:
-            cmd = f"sudo -n /usr/bin/mount -t ntfs-3g -o rw,no_def_opts,allow_other,umask=000 {node} {mount_point}"
+            cmd = f"sudo -n /usr/bin/mount -t ntfs-3g -o rw,no_def_opts,allow_other,uid={os.getuid()},gid={os.getgid()},umask=000 {node} {mount_point}"
         else:
             cmd = f"sudo -n /usr/bin/mount {node} {mount_point}"
 
