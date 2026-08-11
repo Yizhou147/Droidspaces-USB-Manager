@@ -49,16 +49,22 @@ sudo cp debian/etc/sudoers.d/usb-storage /etc/sudoers.d/
 sudo chmod 440 /etc/sudoers.d/usb-storage
 ```
 
-### 方法 3：Arch / Fedora（推荐）
+### 方法 3：Arch / Fedora 通用安装脚本（推荐）
 
-跨发行版安装请使用 [Droidspaces-rootfs-KDE-builder](https://github.com/Yizhou147/Droidspaces-rootfs-KDE-builder) 仓库中的 `scripts/install-usb-manager.sh`，它自动检测 apt / dnf / pacman 并安装依赖，支持 Debian/Ubuntu、Arch、Fedora：
+项目内置跨发行版安装脚本 `install.sh`，自动检测 apt / dnf / pacman 并安装依赖，支持 Debian/Ubuntu、Arch、Fedora：
 
 ```bash
-curl -fL https://raw.githubusercontent.com/Yizhou147/Droidspaces-rootfs-KDE-builder/main/scripts/install-usb-manager.sh -o install-usb-manager.sh
-sudo bash install-usb-manager.sh
+sudo bash install.sh
 ```
 
-脚本会从上游源码仓库拉取最新代码安装，并配置免密码挂载（含 visudo 校验）与桌面快捷方式。
+脚本特性：
+- 自动拉取最新源码安装（或 `--source DIR` 指定本地源码目录）
+- 自动安装依赖（PyQt5、udev、util-linux、ntfs-3g 等）
+- 配置免密码挂载（含 visudo 校验）与桌面快捷方式
+- 将桌面用户加入 `ntfsusb` 组，解决新版 ntfs-3g 挂载 NTFS 卷的权限问题
+- `--user USER` 可指定桌面用户
+
+> 该脚本同样存在于 [Droidspaces-rootfs-KDE-builder](https://github.com/Yizhou147/Droidspaces-rootfs-KDE-builder) 仓库的 `scripts/install-usb-manager.sh`，供构建容器镜像时使用。
 
 ## 使用方法
 
