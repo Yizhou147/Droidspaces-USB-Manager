@@ -101,6 +101,17 @@ done
 # 松开权限
 chmod -R 777 /dev/bus/usb/ 2>/dev/null
 
+# 获取当前发行版的包管理器安装命令
+detect_adb_install_cmd() {
+    if grep -qi "arch" /etc/os-release 2>/dev/null; then
+        echo "sudo pacman -S android-tools"
+    elif grep -qiE "fedora|red hat|centos|rhel" /etc/os-release 2>/dev/null; then
+        echo "sudo dnf install android-tools"
+    else
+        echo "sudo apt install android-tools-adb"
+    fi
+}
+
 # 测试 ADB
 echo ""
 echo -e "${YELLOW}[3/3] 测试 ADB...${NC}"
@@ -121,7 +132,7 @@ if command -v adb &>/dev/null; then
         echo "请确认手机已开启 USB 调试并已授权"
     fi
 else
-    echo -e "${YELLOW}[提示]${NC} 未安装 adb，请执行: apt install android-tools-adb"
+    echo -e "${YELLOW}[提示]${NC} 未安装 adb，请执行: $(detect_adb_install_cmd)"
 fi
 
 # 提示 Fastboot

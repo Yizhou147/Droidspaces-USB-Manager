@@ -6,6 +6,7 @@ Droidspaces USB Manager
 
 import sys
 import os
+import shutil
 import subprocess
 import fcntl
 import locale
@@ -92,7 +93,7 @@ TRANSLATIONS = {
         "err_eject_title": "弹出失败",
         "info_title": "提示",
         "already_running": "USB 管理器已在运行中",
-        "err_pyqt5": "错误: 需要安装 PyQt5\n请运行: sudo apt install python3-pyqt5",
+        "err_pyqt5": "错误: 需要安装 PyQt5\n请运行: {}",
         "lang_label": "语言:",
         "lang_zh": "中文",
         "lang_en": "English",
@@ -163,7 +164,7 @@ TRANSLATIONS = {
         "err_eject_title": "Eject Failed",
         "info_title": "Info",
         "already_running": "USB Manager is already running",
-        "err_pyqt5": "Error: PyQt5 is required\nRun: sudo apt install python3-pyqt5",
+        "err_pyqt5": "Error: PyQt5 is required\nRun: {}",
         "lang_label": "Language:",
         "lang_zh": "中文",
         "lang_en": "English",
@@ -224,6 +225,40 @@ def t(key, *args):
     if args:
         return text.format(*args)
     return text
+
+
+def detect_distro():
+    """检测当前发行版（arch / fedora / debian，默认 debian）"""
+    try:
+        with open("/etc/os-release") as f:
+            content = f.read().lower()
+        if "arch" in content:
+            return "arch"
+        if "fedora" in content or "red hat" in content or "centos" in content or "rhel" in content:
+            return "fedora"
+        if "debian" in content or "ubuntu" in content:
+            return "debian"
+    except:
+        pass
+    return "debian"
+
+
+def pyqt5_install_hint():
+    """返回当前发行版安装 PyQt5 的命令"""
+    distro = detect_distro()
+    if distro == "arch":
+        return "sudo pacman -S python-pyqt5"
+    if distro == "fedora":
+        return "sudo dnf install python3-qt5"
+    return "sudo apt install python3-pyqt5"
+
+
+def get_file_manager():
+    """获取可用的文件管理器（优先 dolphin，回退到常见管理器）"""
+    for fm in ["dolphin", "nautilus", "nemo", "thunar", "pcmanfm", "konqueror"]:
+        if shutil.which(fm):
+            return fm
+    return None
 
 
 def get_usb_icon(symbolic=False):
@@ -902,8 +937,12 @@ class MainWindow(QMainWindow):
     def open_directory(self, path):
         """打开目录"""
         if os.path.exists(path):
-            if os.access(path, os.R_OK):
-                subprocess.Popen(["dolphin", path])
+            fm = get_file_manager()
+            if fm is None:
+                # 没有检测到文件管理器时回退到 xdg-open
+                subprocess.Popen(["xdg-open", path])
+            elif os.access(path, os.R_OK):
+                subprocess.Popen([fm, path])
             else:
                 env = os.environ.copy()
                 subprocess.Popen(
@@ -911,7 +950,7 @@ class MainWindow(QMainWindow):
                      f"DISPLAY={env.get('DISPLAY', '')}",
                      f"WAYLAND_DISPLAY={env.get('WAYLAND_DISPLAY', '')}",
                      f"XDG_RUNTIME_DIR={env.get('XDG_RUNTIME_DIR', '')}",
-                     "dolphin", path],
+                     fm, path],
                     env=env
                 )
         else:
@@ -1036,7 +1075,7 @@ def main():
     try:
         from PyQt5.QtWidgets import QApplication
     except ImportError:
-        print(t("err_pyqt5"))
+        print(t("err_pyqt5", pyqt5_install_hint()))
         sys.exit(1)
 
     # 加载配置（自动检测语言）

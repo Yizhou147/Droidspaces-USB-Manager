@@ -49,6 +49,17 @@ sudo cp debian/etc/sudoers.d/usb-storage /etc/sudoers.d/
 sudo chmod 440 /etc/sudoers.d/usb-storage
 ```
 
+### 方法 3：Arch / Fedora（推荐）
+
+跨发行版安装请使用 [Droidspaces-rootfs-KDE-builder](https://github.com/Yizhou147/Droidspaces-rootfs-KDE-builder) 仓库中的 `scripts/install-usb-manager.sh`，它自动检测 apt / dnf / pacman 并安装依赖，支持 Debian/Ubuntu、Arch、Fedora：
+
+```bash
+curl -fL https://raw.githubusercontent.com/Yizhou147/Droidspaces-rootfs-KDE-builder/main/scripts/install-usb-manager.sh -o install-usb-manager.sh
+sudo bash install-usb-manager.sh
+```
+
+脚本会从上游源码仓库拉取最新代码安装，并配置免密码挂载（含 visudo 校验）与桌面快捷方式。
+
 ## 使用方法
 
 ### 启动应用
