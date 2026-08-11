@@ -16,17 +16,19 @@ USB 设备管理工具，专为 **Droidspaces** Linux 容器环境设计，自�
 - **中英文语言切换**（自动检测系统语言）
 - 支持 Wayland 和 X11
 - 多分区支持（每个分区独立挂载）
+- **跨发行版支持**：Debian/Ubuntu、Arch、Fedora
+- **免密访问 NTFS**：自动处理新版 ntfs-3g 的权限问题（ntfsusb 组）
 
 ## 安装方法
 
-### 方法 1：使用 deb 包（推荐）
+### 方法 1：使用 deb 包（Debian/Ubuntu）
 
 ```bash
 sudo dpkg -i usb-manager-v1.2.deb
 sudo apt-get install -f  # 自动补齐依赖
 ```
 
-### 方法 2：手动安装
+### 方法 2：手动安装（Debian/Ubuntu）
 
 ```bash
 # 安装依赖
@@ -97,41 +99,64 @@ usb-manager
 
 ## 依赖说明
 
-### 必需依赖
+### 各发行版安装命令
+
+| 发行版 | PyQt5 | 其他核心依赖 | NTFS/exFAT | ADB |
+|---|---|---|---|---|
+| Debian/Ubuntu | `python3-pyqt5` | `python3 udev util-linux xdg-utils` | `ntfs-3g exfatprogs` | `android-tools-adb` |
+| Arch | `python-pyqt5` | `util-linux xdg-utils`（udev 随 systemd 提供） | `ntfs-3g exfatprogs` | `android-tools` |
+| Fedora | `python3-qt5` | `systemd-udev util-linux xdg-utils` | `ntfs-3g* exfatprogs` | `android-tools*` |
+
+> `*` Fedora 的 `ntfs-3g` / `android-tools` 在 RPM Fusion 仓库，需先启用：
+>
+> ```bash
+> sudo dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+> ```
+
+### 功能说明
 
 - `python3`：Python 3.x
-- `python3-pyqt5`：Qt5 图形界面库
-- `udev`：设备管理
-- `util-linux`：blkid、mount 等工具
+- PyQt5：Qt5 图形界面库（各发行版包名见上表）
+- `udev`：设备管理（Arch 随 systemd 提供）
+- `util-linux`：blkid、mount、umount、mknod 等工具
+- `xdg-utils`：`xdg-open`（未检测到 Dolphin 等文件管理器时的回退方案）
+- `ntfs-3g`：NTFS 支持
+- `exfatprogs`：exFAT 支持
+- `dolphin`：KDE 文件管理器（其他发行版无 Dolphin 时自动回退到 nautilus/thunar/xdg-open）
 
-### 可选依赖
+### NTFS 权限说明（重要）
 
-- `ntfs-3g`：NTFS 文件系统支持（用于挂载 Windows 格式的 U 盘）
-- `exfat-fuse`：exFAT 文件系统支持
-- `kio-admin`：KDE Dolphin 管理员模式支持
+新版 ntfs-3g（2026.x，如 Fedora/Arch 上的版本）挂载 NTFS 卷时，`uid/gid/umask/chmod` 等选项全部失效，所有文件固定映射为 `root:1023 770`，普通用户无法访问。`install.sh` 已自动处理：将桌面用户加入 gid 1023 的 `ntfsusb` 组，即可直接读写，无需输密码。
 
-### NTFS 支持
-
-如果需要挂载 NTFS 格式的 U 盘，需要手动安装 ntfs-3g：
-
-```bash
-sudo apt-get install ntfs-3g
-```
+Debian 13 / Ubuntu（ntfs-3g 2022.x 旧版）的 `uid/gid` 选项正常生效，挂载后属主即为用户，天然免密。
 
 ## 卸载方法
+
+Debian/Ubuntu（deb 包安装）：
 
 ```bash
 sudo dpkg -r usb-manager
 ```
 
+install.sh 安装：
+
+```bash
+sudo rm -rf /usr/share/usb-manager /usr/bin/usb-manager \
+    /usr/share/applications/usb-manager.desktop \
+    /etc/sudoers.d/droidspaces-usb-manager
+# 可选：移除 ntfsusb 组
+sudo groupdel ntfsusb
+```
+
 ## 文件说明
 
-- `usb-manager.py`：主程序
-- `usb-passthrough.sh`：ADB 设备节点创建脚本
-- `usb-storage-passthrough.sh`：USB 存储设备节点创建脚本
-- `usb-manager.desktop`：桌面快捷方式
-- `usb-manager`：启动脚本
-- `usb-storage`：sudoers 配置文件
+- `src/usb-manager.py`：主程序
+- `src/usb-passthrough.sh`：ADB 设备节点创建脚本
+- `src/usb-storage-passthrough.sh`：USB 存储设备节点创建脚本
+- `desktop/usb-manager.desktop`：桌面快捷方式
+- `debian/`：Debian/Ubuntu deb 打包目录
+- `install.sh`：跨发行版安装脚本（来源于 [Droidspaces-rootfs-KDE-builder](https://github.com/Goldzxcbug/Droidspaces-rootfs-KDE-builder) 的 `scripts/install-usb-manager.sh`）
+- `icons/`：应用图标
 
 ## 许可证
 
