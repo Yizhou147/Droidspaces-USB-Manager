@@ -84,6 +84,7 @@ TRANSLATIONS = {
         "err_eject_failed": "无法卸载:\n{}",
         "err_eject_error": "卸载出错:\n{}",
         "err_dir_missing": "目录 {} 不存在",
+        "err_open_dir": "无法打开目录:\n{}",
         "err_script_missing": "找不到脚本: {}",
         "err_adb_connect": "无法连接 ADB 设备:\n{}",
         "err_adb_error": "连接 ADB 设备出错:\n{}",
@@ -155,6 +156,7 @@ TRANSLATIONS = {
         "err_eject_failed": "Cannot unmount:\n{}",
         "err_eject_error": "Unmount error:\n{}",
         "err_dir_missing": "Directory {} does not exist",
+        "err_open_dir": "Cannot open directory:\n{}",
         "err_script_missing": "Script not found: {}",
         "err_adb_connect": "Cannot connect ADB device:\n{}",
         "err_adb_error": "ADB connect error:\n{}",
@@ -936,25 +938,26 @@ class MainWindow(QMainWindow):
 
     def open_directory(self, path):
         """打开目录"""
-        if os.path.exists(path):
-            fm = get_file_manager()
-            if fm is None:
-                # 没有检测到文件管理器时回退到 xdg-open
-                subprocess.Popen(["xdg-open", path])
-            elif os.access(path, os.R_OK):
-                subprocess.Popen([fm, path])
-            else:
-                env = os.environ.copy()
-                subprocess.Popen(
-                    ["pkexec", "env",
-                     f"DISPLAY={env.get('DISPLAY', '')}",
-                     f"WAYLAND_DISPLAY={env.get('WAYLAND_DISPLAY', '')}",
-                     f"XDG_RUNTIME_DIR={env.get('XDG_RUNTIME_DIR', '')}",
-                     fm, path],
-                    env=env
-                )
-        else:
+        if not os.path.exists(path):
             QMessageBox.information(self, t("info_title"), t("err_dir_missing", path))
+            return
+
+        fm = get_file_manager()
+        if fm is None:
+            cmd = ["xdg-open", path]
+        elif os.access(path, os.R_OK):
+            cmd = [fm, path]
+        else:
+            env = os.environ.copy()
+            cmd = ["pkexec", "env",
+                   f"DISPLAY={env.get('DISPLAY', '')}",
+                   f"WAYLAND_DISPLAY={env.get('WAYLAND_DISPLAY', '')}",
+                   f"XDG_RUNTIME_DIR={env.get('XDG_RUNTIME_DIR', '')}",
+                   fm, path]
+        try:
+            subprocess.Popen(cmd)
+        except FileNotFoundError as e:
+            QMessageBox.warning(self, t("err_title"), t("err_open_dir", str(e)))
 
     def show_about(self):
         """显示关于对话框"""
