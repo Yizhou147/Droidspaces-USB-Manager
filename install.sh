@@ -328,6 +328,10 @@ StartupNotify=true
 EOF
 
     install -d -m 0755 -o "$TARGET_USER" -g "$TARGET_GROUP" "$TARGET_HOME/Desktop"
+    # 若桌面快捷方式已是指向源文件的软链接，先删除再复制，避免 install 报 same file
+    if [ -L "$TARGET_HOME/Desktop/usb-manager.desktop" ]; then
+        rm -f -- "$TARGET_HOME/Desktop/usb-manager.desktop"
+    fi
     install -m 0755 -o "$TARGET_USER" -g "$TARGET_GROUP" \
         /usr/share/applications/usb-manager.desktop \
         "$TARGET_HOME/Desktop/usb-manager.desktop"
