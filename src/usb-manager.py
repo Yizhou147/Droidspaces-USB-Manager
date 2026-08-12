@@ -687,6 +687,9 @@ class ScanWorker(QThread):
 
 class MainWindow(QMainWindow):
     """主窗口"""
+    # 设备树列宽比例（合计为 1.0），按窗口宽度百分比分配，适配不同缩放/分辨率
+    COLUMN_RATIOS = (0.30, 0.18, 0.18, 0.18, 0.16)
+
     def __init__(self, tray_icon=None):
         super().__init__()
         self.tray_icon = tray_icon
@@ -741,12 +744,8 @@ class MainWindow(QMainWindow):
         self.device_tree.setHeaderLabels([
             t("col_device"), t("col_size"), t("col_fs"), t("col_status"), t("col_action")
         ])
-        # 初始列宽：设备栏较宽、操作栏最窄，大小/文件系统/状态三栏一致，均可手动拖动调整
-        self.device_tree.setColumnWidth(0, 200)
-        self.device_tree.setColumnWidth(1, 120)
-        self.device_tree.setColumnWidth(2, 120)
-        self.device_tree.setColumnWidth(3, 120)
-        self.device_tree.setColumnWidth(4, 110)
+        # 列宽按窗口宽度百分比分配（COLUMN_RATIOS），不同缩放/分辨率下保持比例
+        self.apply_column_ratios()
         self.device_tree.setAlternatingRowColors(True)
         self.device_tree.setRootIsDecorated(True)
         self.layout.addWidget(self.device_tree)
@@ -800,6 +799,25 @@ class MainWindow(QMainWindow):
             self.tray_icon.retranslate_menu()
         # 刷新设备树
         self.scan_devices()
+
+    def apply_column_ratios(self):
+        """按百分比分配设备树列宽，适配不同窗口尺寸与 DPI 缩放"""
+        if not hasattr(self, "device_tree") or self.device_tree is None:
+            return
+        total = self.device_tree.viewport().width()
+        if total <= 0:
+            total = self.device_tree.width()
+        if total <= 0:
+            return
+        header = self.device_tree.header()
+        min_width = header.minimumSectionSize()
+        for col, ratio in enumerate(self.COLUMN_RATIOS):
+            self.device_tree.setColumnWidth(col, max(int(total * ratio), min_width))
+
+    def resizeEvent(self, event):
+        """窗口尺寸变化时按比例重新分配列宽"""
+        super().resizeEvent(event)
+        self.apply_column_ratios()
 
     def scan_devices(self):
         """扫描 USB 设备"""
@@ -996,6 +1014,9 @@ class MainWindow(QMainWindow):
             status = t("status_detected", "，".join(status_parts))
         else:
             status = t("status_no_device")
+
+        # 每次刷新后按比例重设列宽，避免 setItemWidget 按钮组撑开列宽
+        self.apply_column_ratios()
 
         self.status_bar.showMessage(status)
         if self.tray_icon:
