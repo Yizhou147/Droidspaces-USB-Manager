@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import fcntl
 import json
+import signal
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -28,6 +29,9 @@ from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 
 # 单实例锁文件路径
 LOCK_FILE = "/tmp/usb-manager.lock"
+# 第二实例通知首实例显示窗口：信号处理期间暂存，tray 就绪后处理
+_show_requested = False
+_tray = None
 # 挂载点基础目录
 MOUNT_BASE = os.path.expanduser("~/USB-Storage")
 # 配置文件路径
@@ -93,7 +97,6 @@ TRANSLATIONS = {
         "err_title": "错误",
         "err_eject_title": "弹出失败",
         "info_title": "提示",
-        "already_running": "USB 管理器已在运行中",
         "err_pyqt5": "错误: 需要安装 PyQt5\n请运行: {}",
         "lang_label": "语言:",
         "lang_zh": "中文",
@@ -183,7 +186,6 @@ TRANSLATIONS = {
         "err_title": "Error",
         "err_eject_title": "Eject Failed",
         "info_title": "Info",
-        "already_running": "USB Manager is already running",
         "err_pyqt5": "Error: PyQt5 is required\nRun: {}",
         "lang_label": "Language:",
         "lang_zh": "中文",
@@ -1477,6 +1479,15 @@ class UsbTrayIcon(QSystemTrayIcon):
             self.show_main_window()
 
 
+def _request_show(signum, frame):
+    """收到第二实例的 SIGUSR1：让主窗口前置（延迟到事件循环空闲执行）"""
+    global _show_requested
+    if _tray is not None and QApplication.instance() is not None:
+        QTimer.singleShot(0, _tray.show_main_window)
+    else:
+        _show_requested = True
+
+
 def main():
     try:
         from PyQt5.QtWidgets import QApplication
@@ -1487,29 +1498,44 @@ def main():
     # 加载配置（自动检测语言）
     load_config()
 
-    # 单实例检查
-    lock_file = open(LOCK_FILE, 'w')
+    # 单实例检查：非破坏性打开锁文件（不截断），锁失败时仍能读到持有者 PID
+    lock_fd = os.open(LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        lock_file.write(str(os.getpid()))
-        lock_file.flush()
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (IOError, OSError):
-        app = QApplication(sys.argv)
-        QMessageBox.warning(None, t("info_title"), t("already_running"))
+        # 已有实例：通知其显示主窗口后退出（保持单实例）
+        try:
+            data = os.read(lock_fd, 64).decode().strip()
+            pid = int(data or "0")
+            if pid > 0:
+                os.kill(pid, signal.SIGUSR1)
+        except (OSError, ValueError):
+            pass
         sys.exit(0)
+
+    # 持有锁：写入当前进程 PID（截断后写入）
+    os.ftruncate(lock_fd, 0)
+    os.lseek(lock_fd, 0, os.SEEK_SET)
+    os.write(lock_fd, str(os.getpid()).encode())
+
+    # 拿到锁后立即注册信号处理器，避免第二实例通知到达时被默认动作终止
+    signal.signal(signal.SIGUSR1, _request_show)
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setStyle("Fusion")
 
+    global _tray
     tray = UsbTrayIcon()
+    _tray = tray
+    if _show_requested:
+        tray.show_main_window()
     tray.show()
     tray.main_window.show()
 
     ret = app.exec_()
 
-    fcntl.flock(lock_file, fcntl.LOCK_UN)
-    lock_file.close()
+    os.close(lock_fd)
     try:
         os.unlink(LOCK_FILE)
     except:
