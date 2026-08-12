@@ -1,0 +1,102 @@
+name: Build Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 1.3）'
+        required: true
+        default: '1.3'
+      release_title:
+        description: 'Release 标题（留空则用 v<version>）'
+        required: false
+
+jobs:
+  build-deb:
+    name: Debian/Ubuntu (.deb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 更新版本号并构建 deb
+        run: |
+          sed -i "s/^Version: .*/Version: ${{ inputs.version }}-1/" debian/DEBIAN/control
+          dpkg-deb --build debian "usb-manager_${{ inputs.version }}-1_all.deb"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: usb-manager_*.deb
+
+  build-rpm:
+    name: Fedora (.rpm)
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 准备构建环境
+        run: dnf install -y rpm-build tar
+      - name: 打源码包并构建 rpm
+        run: |
+          mkdir -p "usb-manager-${{ inputs.version }}"
+          cp -r src icons desktop LICENSE README.md "usb-manager-${{ inputs.version }}/"
+          rm -rf "usb-manager-${{ inputs.version }}/src/__pycache__"
+          tar czf "usb-manager-${{ inputs.version }}.tar.gz" "usb-manager-${{ inputs.version }}"
+          sed -i "s/^Version:.*/Version: ${{ inputs.version }}/" usb-manager.spec
+          rpmbuild -bb usb-manager.spec
+          cp /root/rpmbuild/RPMS/noarch/*.rpm .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: ./*.rpm
+
+  build-arch:
+    name: Arch (.pkg.tar.zst)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 准备构建环境
+        run: |
+          pacman -Syu --noconfirm --needed base-devel
+          useradd -m builder
+      - name: 打源码包并构建 Arch 包
+        run: |
+          mkdir -p "usb-manager-${{ inputs.version }}"
+          cp -r src icons desktop LICENSE README.md "usb-manager-${{ inputs.version }}/"
+          rm -rf "usb-manager-${{ inputs.version }}/src/__pycache__"
+          tar czf "usb-manager-${{ inputs.version }}.tar.gz" "usb-manager-${{ inputs.version }}"
+          sed -i "s/^pkgver=.*/pkgver=${{ inputs.version }}/" PKGBUILD
+          chown -R builder:builder .
+          su builder -c "cd $PWD && makepkg -f"
+          cp ./*.pkg.tar.zst .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: ./*.pkg.tar.zst
+
+  release:
+    name: 发布 GitHub Release
+    needs: [build-deb, build-rpm, build-arch]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: 收集软件包
+        run: |
+          mkdir -p packages
+          find dist -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.zst' \) -exec cp {} packages/ \;
+          ls -la packages/
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: ${{ inputs.release_title }}
+          body: |
+            ## Droidspaces USB Manager v${{ inputs.version }}
+
+            ### 安装方式
+            - **Debian / Ubuntu**：`sudo apt install ./usb-manager_${{ inputs.version }}-1_all.deb`
+            - **Fedora**：`sudo dnf install ./usb-manager-${{ inputs.version }}-1.noarch.rpm`
+            - **Arch**：`sudo pacman -U ./usb-manager-${{ inputs.version }}-1-any.pkg.tar.zst`
+            - 也可使用安装脚本：`./install.sh --source .`
+          files: packages/*
+          draft: false

@@ -6,11 +6,12 @@ Droidspaces USB Manager
 
 import sys
 import os
+import shutil
 import subprocess
 import fcntl
-import locale
 import json
 from pathlib import Path
+from urllib.parse import unquote
 
 # 强制使用 X11 后端（避免 Wayland 问题）
 if os.environ.get('QT_QPA_PLATFORM') == 'wayland':
@@ -53,7 +54,7 @@ TRANSLATIONS = {
         "mounted": "已挂载",
         "unmounted": "未挂载",
         "unknown": "未知",
-        "open_dir": "打开目录",
+        "open_dir": "打开",
         "eject": "弹出",
         "mount": "挂载",
         "connect": "连接",
@@ -65,7 +66,7 @@ TRANSLATIONS = {
         "adb_connected": "ADB 设备已连接",
         "adb_node_created": "已创建 ADB 设备节点 {}",
         "status_storage": "{} 个存储设备",
-        "status_adb": "{} 个 ADB 设备",
+        "status_adb": "{} 个 USB 设备",
         "status_mounted": "{} 个分区已挂载",
         "status_detected": "检测到 {}",
         "status_no_device": "未检测到 USB 设备",
@@ -83,6 +84,7 @@ TRANSLATIONS = {
         "err_eject_failed": "无法卸载:\n{}",
         "err_eject_error": "卸载出错:\n{}",
         "err_dir_missing": "目录 {} 不存在",
+        "err_open_dir": "无法打开目录:\n{}",
         "err_script_missing": "找不到脚本: {}",
         "err_adb_connect": "无法连接 ADB 设备:\n{}",
         "err_adb_error": "连接 ADB 设备出错:\n{}",
@@ -92,7 +94,7 @@ TRANSLATIONS = {
         "err_eject_title": "弹出失败",
         "info_title": "提示",
         "already_running": "USB 管理器已在运行中",
-        "err_pyqt5": "错误: 需要安装 PyQt5\n请运行: sudo apt install python3-pyqt5",
+        "err_pyqt5": "错误: 需要安装 PyQt5\n请运行: {}",
         "lang_label": "语言:",
         "lang_zh": "中文",
         "lang_en": "English",
@@ -104,6 +106,24 @@ TRANSLATIONS = {
         "about_project": "项目地址",
         "about_license": "许可证",
         "about_description": "自动检测、挂载 USB 存储设备\n支持弹出和打开目录",
+        "devtype_hub": "USB 集线器",
+        "devtype_hid": "HID 设备",
+        "devtype_audio": "音频设备",
+        "devtype_video": "视频设备",
+        "devtype_network": "网络设备",
+        "devtype_storage": "存储设备",
+        "devtype_printer": "打印机",
+        "devtype_adb": "ADB",
+        "devtype_fastboot": "Fastboot",
+        "devtype_vendor": "厂商专用设备",
+        "devtype_unknown": "USB 设备",
+        "mtp_label": "MTP 存储",
+        "mtp_mounted": "MTP 已挂载",
+        "mtp_unmounted": "MTP 已卸载",
+        "err_mtp_not_mounted": "MTP 未挂载为本地目录（请先点 MTP 行进行挂载，或确认 gvfsd-fuse 已运行）",
+        "err_mtp_mount": "无法挂载 MTP:\n{}",
+        "err_mtp_unmount": "无法卸载 MTP:\n{}",
+        "err_gio_missing": "未找到 gio 命令，请安装 gvfs-backends / gvfs-mtp",
     },
     "en": {
         "window_title": "Droidspaces USB Manager",
@@ -124,7 +144,7 @@ TRANSLATIONS = {
         "mounted": "Mounted",
         "unmounted": "Unmounted",
         "unknown": "Unknown",
-        "open_dir": "Open Dir",
+        "open_dir": "Open",
         "eject": "Eject",
         "mount": "Mount",
         "connect": "Connect",
@@ -136,7 +156,7 @@ TRANSLATIONS = {
         "adb_connected": "ADB device connected",
         "adb_node_created": "ADB device node {} created",
         "status_storage": "{} storage device(s)",
-        "status_adb": "{} ADB device(s)",
+        "status_adb": "{} USB device(s)",
         "status_mounted": "{} partition(s) mounted",
         "status_detected": "Detected {}",
         "status_no_device": "No USB device detected",
@@ -154,6 +174,7 @@ TRANSLATIONS = {
         "err_eject_failed": "Cannot unmount:\n{}",
         "err_eject_error": "Unmount error:\n{}",
         "err_dir_missing": "Directory {} does not exist",
+        "err_open_dir": "Cannot open directory:\n{}",
         "err_script_missing": "Script not found: {}",
         "err_adb_connect": "Cannot connect ADB device:\n{}",
         "err_adb_error": "ADB connect error:\n{}",
@@ -163,7 +184,7 @@ TRANSLATIONS = {
         "err_eject_title": "Eject Failed",
         "info_title": "Info",
         "already_running": "USB Manager is already running",
-        "err_pyqt5": "Error: PyQt5 is required\nRun: sudo apt install python3-pyqt5",
+        "err_pyqt5": "Error: PyQt5 is required\nRun: {}",
         "lang_label": "Language:",
         "lang_zh": "中文",
         "lang_en": "English",
@@ -175,6 +196,24 @@ TRANSLATIONS = {
         "about_project": "Project",
         "about_license": "License",
         "about_description": "Auto-detect and mount USB storage devices\nSupport eject and open directory",
+        "devtype_hub": "USB Hub",
+        "devtype_hid": "HID Device",
+        "devtype_audio": "Audio Device",
+        "devtype_video": "Video Device",
+        "devtype_network": "Network Device",
+        "devtype_storage": "Storage Device",
+        "devtype_printer": "Printer",
+        "devtype_adb": "ADB",
+        "devtype_fastboot": "Fastboot",
+        "devtype_vendor": "Vendor Specific",
+        "devtype_unknown": "USB Device",
+        "mtp_label": "MTP Storage",
+        "mtp_mounted": "MTP mounted",
+        "mtp_unmounted": "MTP unmounted",
+        "err_mtp_not_mounted": "MTP is not mounted as a local directory (mount it first, or check gvfsd-fuse is running)",
+        "err_mtp_mount": "Cannot mount MTP:\n{}",
+        "err_mtp_unmount": "Cannot unmount MTP:\n{}",
+        "err_gio_missing": "gio command not found. Install gvfs-backends / gvfs-mtp",
     }
 }
 
@@ -182,15 +221,27 @@ TRANSLATIONS = {
 _current_lang = "zh"
 
 
+def _find_blkid():
+    """查找 blkid 可执行文件路径（发行版间布局不同：/usr/bin、/usr/sbin、/sbin）"""
+    for p in ("/usr/bin/blkid", "/usr/sbin/blkid", "/sbin/blkid"):
+        if os.path.exists(p):
+            return p
+    return shutil.which("blkid") or "/usr/sbin/blkid"
+
+
+# blkid 绝对路径（安装脚本需在 sudoers 中授权对应路径）
+BLKID_CMD = _find_blkid()
+
+
 def detect_system_language():
-    """检测系统语言"""
-    try:
-        lang = locale.getdefaultlocale()[0] or ""
+    """检测系统语言（基于 locale 环境变量，避免使用已弃用的 getdefaultlocale）"""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        lang = os.environ.get(var) or ""
         if lang.startswith("zh"):
             return "zh"
-        return "en"
-    except:
-        return "zh"
+        if lang:
+            return "en"
+    return "zh"
 
 
 def load_config():
@@ -226,13 +277,188 @@ def t(key, *args):
     return text
 
 
-def get_usb_icon():
-    """获取 KDE 自带的 USB 图标"""
-    for theme_name in ["drive-removable-media-usb", "drive-removable-media", "generic-usb"]:
-        icon = QIcon.fromTheme(theme_name)
+def detect_distro():
+    """检测当前发行版（arch / fedora / debian，默认 debian）"""
+    try:
+        with open("/etc/os-release") as f:
+            content = f.read().lower()
+        if "arch" in content:
+            return "arch"
+        if "fedora" in content or "red hat" in content or "centos" in content or "rhel" in content:
+            return "fedora"
+        if "debian" in content or "ubuntu" in content:
+            return "debian"
+    except:
+        pass
+    return "debian"
+
+
+def pyqt5_install_hint():
+    """返回当前发行版安装 PyQt5 的命令"""
+    distro = detect_distro()
+    if distro == "arch":
+        return "sudo pacman -S python-pyqt5"
+    if distro == "fedora":
+        return "sudo dnf install python3-qt5"
+    return "sudo apt install python3-pyqt5"
+
+
+def get_file_manager():
+    """获取可用的文件管理器（优先 dolphin，回退到常见管理器）"""
+    for fm in ["dolphin", "nautilus", "nemo", "thunar", "pcmanfm", "konqueror"]:
+        if shutil.which(fm):
+            return fm
+    return None
+
+
+def get_usb_icon(symbolic=False):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if symbolic:
+        icon = QIcon.fromTheme('drive-removable-media-usb-symbolic')
         if not icon.isNull():
             return icon
+        icon_path = os.path.join(script_dir, 'icons', 'usb-manager-symbolic.svg')
+        if os.path.exists(icon_path):
+            return QIcon(icon_path)
+    else:
+        icon_path = os.path.join(script_dir, 'icons', 'usb-manager.svg')
+        if os.path.exists(icon_path):
+            return QIcon(icon_path)
+        for theme_name in ['drive-removable-media-usb', 'drive-removable-media', 'generic-usb']:
+            icon = QIcon.fromTheme(theme_name)
+            if not icon.isNull():
+                return icon
     return QApplication.style().standardIcon(QStyle.SP_DriveFDIcon)
+
+
+# ==================== USB 设备分类 ====================
+# USB class 码（bDeviceClass / bInterfaceClass）→ 类型标识
+# 参考 USB 规范 https://www.usb.org/defined-class-codes
+USB_CLASS_TYPES = {
+    "00": None,          # 由接口定义
+    "01": "audio",       # Audio
+    "02": "network",     # Communication / CDC
+    "03": "hid",         # HID
+    "05": "physical",    # Physical
+    "06": "image",       # Image
+    "07": "printer",     # Printer
+    "08": "storage",     # Mass Storage
+    "09": "hub",         # Hub
+    "0a": "network",     # CDC Data
+    "0b": "smartcard",   # Smart Card
+    "0d": "security",    # Content Security
+    "0e": "video",       # Video
+    "0f": "health",      # Personal Healthcare
+    "10": "av",          # Audio/Video
+    "dc": "diagnostic",  # Diagnostic Device
+    "e0": "wireless",    # Wireless Controller
+    "fe": "app_specific",  # Application Specific
+    "ff": "vendor",      # Vendor Specific
+}
+
+
+def _read_sysfs(path):
+    """安全读取 sysfs 单行文本文件"""
+    try:
+        return path.read_text().strip()
+    except Exception:
+        return None
+
+
+# 多接口设备主类型优先级（越靠前越"主要"，如摄像头+麦克风选视频）
+_USB_TYPE_PRIORITY = [
+    "storage", "video", "audio", "network", "hid", "printer",
+    "smartcard", "image", "wireless", "health", "physical",
+    "av", "security", "diagnostic", "app_specific", "vendor",
+]
+
+
+def _pick_primary_type(types):
+    """从接口类型集合中选择主类型（按 _USB_TYPE_PRIORITY 优先级）"""
+    for t in _USB_TYPE_PRIORITY:
+        if t in types:
+            return t
+    return types[0]
+
+
+def classify_usb_device(usb_dev):
+    """根据 bDeviceClass 与接口 bInterfaceClass 判定 USB 设备类型。
+
+    返回 (type, type_name)：
+      - type: adb / hub / hid / audio / video / network / storage /
+              printer / vendor / unknown 等稳定标识
+      - type_name: 翻译表 key（devtype_*），未命中时用 unknown
+
+    判定顺序：
+      1. 设备级类码 09 → Hub
+      2. 设备级类码 00（由接口决定）→ 遍历接口：
+         - 接口 (ff, 42, 01) → ADB
+         - 接口 (ff, 42, 03) → Fastboot
+         - 否则取优先级最高的有意义接口类码
+      3. 其余设备级类码直接映射
+    """
+    devclass = _read_sysfs(usb_dev / "bDeviceClass")
+
+    if devclass == "09":
+        return ("hub", "devtype_hub")
+
+    if devclass is None or devclass == "00":
+        # 遍历接口目录（如 1-1:1.0），优先判定 Android 调试接口
+        is_adb = False
+        is_fastboot = False
+        iface_types = []
+        try:
+            for iface in usb_dev.iterdir():
+                if not iface.is_dir() or ":" not in iface.name:
+                    continue
+                iclass = _read_sysfs(iface / "bInterfaceClass")
+                isub = _read_sysfs(iface / "bInterfaceSubClass")
+                iprot = _read_sysfs(iface / "bInterfaceProtocol")
+                if iclass == "ff" and isub == "42":
+                    if iprot == "01":
+                        is_adb = True
+                        break
+                    if iprot == "03":
+                        is_fastboot = True
+                        break
+                if iclass:
+                    dtype = USB_CLASS_TYPES.get(iclass)
+                    if dtype:
+                        iface_types.append(dtype)
+        except Exception:
+            pass
+        if is_adb:
+            return ("adb", "devtype_adb")
+        if is_fastboot:
+            return ("fastboot", "devtype_fastboot")
+        if iface_types:
+            dtype = _pick_primary_type(iface_types)
+            return (dtype, f"devtype_{dtype}")
+        return ("unknown", "devtype_unknown")
+
+    dtype = USB_CLASS_TYPES.get(devclass)
+    if dtype:
+        return (dtype, f"devtype_{dtype}")
+    return ("unknown", "devtype_unknown")
+
+
+def has_mtp_interface(usb_dev):
+    """检测设备是否含 MTP/PTP 接口（bInterfaceClass=06，或厂商类 ff 且非 ADB 接口）"""
+    try:
+        for iface in usb_dev.iterdir():
+            if not iface.is_dir() or ":" not in iface.name:
+                continue
+            iclass = _read_sysfs(iface / "bInterfaceClass")
+            isub = _read_sysfs(iface / "bInterfaceSubClass")
+            iprot = _read_sysfs(iface / "bInterfaceProtocol")
+            if iclass == "06":
+                return True  # Image / PTP / MTP
+            if iclass == "ff" and isub != "42":
+                return True  # 厂商类且非 Android 调试接口(42: ADB/Fastboot)，多为 MTP
+    except Exception:
+        pass
+    return False
+
 
 
 class ScanWorker(QThread):
@@ -262,7 +488,8 @@ class ScanWorker(QThread):
         return True
 
     def scan_adb_devices(self):
-        """扫描 ADB 设备（排除 USB 存储设备）"""
+        """扫描非存储 USB 设备（排除 USB 存储设备），并按 class 码分类为
+        adb / hub / hid / audio / video / network / storage 等类型"""
         devices = []
         usb_base = Path("/sys/bus/usb/devices")
 
@@ -315,8 +542,12 @@ class ScanWorker(QThread):
                 devclass_file = usb_dev / "bDeviceClass"
                 devclass = devclass_file.read_text().strip() if devclass_file.exists() else "00"
 
+                dtype, type_name = classify_usb_device(usb_dev)
+                is_mtp = has_mtp_interface(usb_dev)
+
                 device_info = {
-                    "type": "adb",
+                    "type": dtype,
+                    "type_name": type_name,
                     "name": product,
                     "node": node_path,
                     "vendor_id": vendor_id,
@@ -324,6 +555,7 @@ class ScanWorker(QThread):
                     "busnum": busnum,
                     "devnum": devnum,
                     "devclass": devclass,
+                    "mtp": is_mtp,
                     "exists": os.path.exists(node_path)
                 }
 
@@ -445,7 +677,7 @@ class ScanWorker(QThread):
             return None
         try:
             result = subprocess.run(
-                ["sudo", "-n", "/usr/sbin/blkid", "-s", "TYPE", "-o", "value", device],
+                ["sudo", "-n", BLKID_CMD, "-s", "TYPE", "-o", "value", device],
                 capture_output=True, text=True
             )
             return result.stdout.strip() or None
@@ -485,7 +717,7 @@ class MainWindow(QMainWindow):
         self.title_layout.addWidget(self.lang_combo)
 
         self.refresh_btn = QPushButton(t("refresh"))
-        self.refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        self.refresh_btn.setIcon(QIcon.fromTheme("view-refresh", self.style().standardIcon(QStyle.SP_BrowserReload)))
         self.refresh_btn.clicked.connect(self.resume_and_scan)
         self.title_layout.addWidget(self.refresh_btn)
 
@@ -509,11 +741,12 @@ class MainWindow(QMainWindow):
         self.device_tree.setHeaderLabels([
             t("col_device"), t("col_size"), t("col_fs"), t("col_status"), t("col_action")
         ])
-        self.device_tree.setColumnWidth(0, 220)
-        self.device_tree.setColumnWidth(1, 80)
-        self.device_tree.setColumnWidth(2, 80)
-        self.device_tree.setColumnWidth(3, 100)
-        self.device_tree.setColumnWidth(4, 200)
+        # 初始列宽：设备栏较宽、操作栏最窄，大小/文件系统/状态三栏一致，均可手动拖动调整
+        self.device_tree.setColumnWidth(0, 200)
+        self.device_tree.setColumnWidth(1, 120)
+        self.device_tree.setColumnWidth(2, 120)
+        self.device_tree.setColumnWidth(3, 120)
+        self.device_tree.setColumnWidth(4, 110)
         self.device_tree.setAlternatingRowColors(True)
         self.device_tree.setRootIsDecorated(True)
         self.layout.addWidget(self.device_tree)
@@ -530,6 +763,7 @@ class MainWindow(QMainWindow):
         self.status_bar.setStyleSheet("QStatusBar::item { border: none; }")
 
         self.known_devices = set()
+        self.auto_mounted_mtp = set()
         self.scan_paused = False
 
         self.scan_timer = QTimer()
@@ -603,6 +837,7 @@ class MainWindow(QMainWindow):
 
     def update_device_tree(self, storage_devices, adb_devices):
         """更新设备树并自动挂载新设备"""
+        self.cleanup_mount_points()
         self.device_tree.clear()
 
         total_storage = 0
@@ -637,13 +872,16 @@ class MainWindow(QMainWindow):
 
                     btn_widget = QWidget()
                     btn_layout = QHBoxLayout(btn_widget)
-                    btn_layout.setContentsMargins(2, 2, 2, 2)
+                    btn_layout.setContentsMargins(1, 1, 1, 1)
+                    btn_layout.setSpacing(2)
 
                     open_btn = QPushButton(t("open_dir"))
+                    open_btn.setStyleSheet("QPushButton { padding: 2px 6px; }")
                     open_btn.clicked.connect(lambda checked, mp=part['mount_point']: self.open_directory(mp))
                     btn_layout.addWidget(open_btn)
 
                     eject_btn = QPushButton(t("eject"))
+                    eject_btn.setStyleSheet("QPushButton { padding: 2px 6px; }")
                     eject_btn.clicked.connect(lambda checked, p=part: self.eject_device(p))
                     btn_layout.addWidget(eject_btn)
 
@@ -656,6 +894,7 @@ class MainWindow(QMainWindow):
                         self.auto_mount(part)
                     else:
                         mount_btn = QPushButton(t("mount"))
+                        mount_btn.setStyleSheet("QPushButton { padding: 2px 6px; }")
                         mount_btn.clicked.connect(lambda checked, p=part: self.mount_partition(p))
                         self.device_tree.setItemWidget(part_item, 4, mount_btn)
 
@@ -668,14 +907,16 @@ class MainWindow(QMainWindow):
             device['node'] = node_path
             device['exists'] = os.path.exists(node_path)
 
-            if not device['exists']:
+            # 仅对 Android 调试设备（ADB/Fastboot）自动创建 /dev/bus/usb 节点
+            if device['type'] in ('adb', 'fastboot') and not device['exists']:
                 self.auto_connect_adb(device)
                 device['exists'] = os.path.exists(node_path)
 
             dev_item = QTreeWidgetItem(self.device_tree)
-            dev_item.setText(0, f"{device['name']} [ADB]")
+            dev_item.setText(0, f"{device['name']} [{t(device.get('type_name', 'devtype_unknown'))}]")
             dev_item.setText(1, f"{device['vendor_id']}:{device['product_id']}")
             dev_item.setText(2, f"USB {device['devclass']}")
+            dev_item.setExpanded(True)  # 默认展开，避免每次重扫后收起（MTP 子项可见）
 
             if device['exists']:
                 dev_item.setText(3, t("connected"))
@@ -689,10 +930,57 @@ class MainWindow(QMainWindow):
                 btn_layout.setContentsMargins(2, 2, 2, 2)
 
                 connect_btn = QPushButton(t("connect"))
+                connect_btn.setStyleSheet("QPushButton { padding: 2px 6px; }")
                 connect_btn.clicked.connect(lambda checked, d=device: self.connect_adb(d))
                 btn_layout.addWidget(connect_btn)
 
                 self.device_tree.setItemWidget(dev_item, 4, btn_widget)
+
+            # MTP 存储子项（手机等设备：ADB + MTP 同时识别）
+            if device.get('mtp'):
+                mtp_item = QTreeWidgetItem(dev_item)
+                mtp_item.setText(0, t("mtp_label"))
+                mtp_item.setText(2, "MTP")
+
+                if self.is_mtp_mounted(device):
+                    mtp_item.setText(3, t("mounted"))
+                    mtp_item.setForeground(3, QColor("#4CAF50"))
+
+                    btn_widget = QWidget()
+                    btn_layout = QHBoxLayout(btn_widget)
+                    btn_layout.setContentsMargins(1, 1, 1, 1)
+                    btn_layout.setSpacing(2)
+
+                    open_btn = QPushButton(t("open_dir"))
+                    open_btn.setStyleSheet("QPushButton { padding: 2px 6px; }")
+                    open_btn.clicked.connect(lambda checked, d=device: self.open_mtp(d))
+                    btn_layout.addWidget(open_btn)
+
+                    unmount_btn = QPushButton(t("eject"))
+                    unmount_btn.setStyleSheet("QPushButton { padding: 2px 6px; }")
+                    unmount_btn.clicked.connect(lambda checked, d=device: self.mtp_unmount(d))
+                    btn_layout.addWidget(unmount_btn)
+                    self.device_tree.setItemWidget(mtp_item, 4, btn_widget)
+                else:
+                    mtp_item.setText(3, t("unmounted"))
+                    mtp_item.setForeground(3, QColor("#FF9800"))
+
+                    # 检测到 MTP 后自动挂载（每个设备只尝试一次）
+                    mtp_key = f"{device['busnum']}:{device['devnum']}"
+                    if mtp_key not in self.auto_mounted_mtp:
+                        self.auto_mounted_mtp.add(mtp_key)
+                        self.auto_mount_mtp(device)
+
+                    btn_widget = QWidget()
+                    btn_layout = QHBoxLayout(btn_widget)
+                    btn_layout.setContentsMargins(1, 1, 1, 1)
+                    btn_layout.setSpacing(2)
+
+                    mount_btn = QPushButton(t("mount"))
+                    mount_btn.setStyleSheet("QPushButton { padding: 2px 6px; }")
+                    mount_btn.clicked.connect(lambda checked, d=device: self.mtp_mount(d))
+                    btn_layout.addWidget(mount_btn)
+                    self.device_tree.setItemWidget(mtp_item, 4, btn_widget)
 
         self.known_devices = current_devices
 
@@ -783,6 +1071,149 @@ class MainWindow(QMainWindow):
         except:
             pass
 
+    def is_mtp_mounted(self, device):
+        """检查 MTP 设备是否已通过 gvfs 挂载（gio mount -l 匹配 mtp://[usb:bus,dev]）"""
+        busnum = device['busnum'].zfill(3)
+        devnum = device['devnum'].zfill(3)
+        try:
+            result = subprocess.run(["gio", "mount", "-l"], capture_output=True, text=True)
+            return f"mtp://[usb:{busnum},{devnum}]" in result.stdout
+        except FileNotFoundError:
+            return False
+
+    def mtp_mount(self, device):
+        """通过 gvfs 挂载 MTP 设备（用户态协议，非块设备；URI 方式，-d 设备节点方式在部分环境失败）"""
+        busnum = device['busnum'].zfill(3)
+        devnum = device['devnum'].zfill(3)
+        uri = f"mtp://[usb:{busnum},{devnum}]"
+        try:
+            result = subprocess.run(["gio", "mount", uri], capture_output=True, text=True)
+            if result.returncode == 0:
+                self.status_bar.showMessage(t("mtp_mounted"))
+                self.refresh_ui()
+            else:
+                QMessageBox.warning(self, t("err_title"), t("err_mtp_mount", result.stderr.strip()))
+        except FileNotFoundError:
+            QMessageBox.warning(self, t("err_title"), t("err_gio_missing"))
+
+    def ensure_gvfs_fuse(self):
+        """确保 gvfsd-fuse 运行（KDE 会话不会自动启动它，MTP 需要它以本地目录形式挂载）"""
+        gvfs_dir = os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "gvfs")
+        if not os.path.isdir(gvfs_dir):
+            return
+        try:
+            result = subprocess.run(["pgrep", "-x", "gvfsd-fuse"], capture_output=True)
+            if result.returncode == 0:
+                return  # 已在运行
+        except FileNotFoundError:
+            return
+        try:
+            subprocess.Popen(["/usr/libexec/gvfsd-fuse", gvfs_dir])
+        except Exception:
+            pass
+
+    def get_gvfs_mtp_path(self, device):
+        """查找当前设备对应的 gvfs MTP 本地目录（目录名如 mtp:host=%5Busb%3A001%2C012%5D，需按 busnum:devnum 精确匹配，避免命中其他/幽灵挂载）"""
+        busnum = device['busnum'].zfill(3)
+        devnum = device['devnum'].zfill(3)
+        target = f"usb:{busnum},{devnum}"
+        gvfs_dir = os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "gvfs")
+        try:
+            if os.path.isdir(gvfs_dir):
+                for entry in os.listdir(gvfs_dir):
+                    if entry.startswith("mtp:host=") and target in unquote(entry):
+                        return os.path.join(gvfs_dir, entry)
+        except OSError:
+            pass
+        return None
+
+    def open_mtp(self, device):
+        """打开 MTP：确保 gvfsd-fuse 运行后用文件管理器打开本地挂载目录（dolphin 打开本地路径）"""
+        self.ensure_gvfs_fuse()
+        local_path = self.get_gvfs_mtp_path(device)
+        if not local_path:
+            QMessageBox.warning(self, t("err_title"), t("err_mtp_not_mounted"))
+            return
+        fm = get_file_manager()
+        cmd = [fm, local_path] if fm else ["xdg-open", local_path]
+        try:
+            subprocess.Popen(cmd)
+        except FileNotFoundError:
+            QMessageBox.warning(self, t("err_title"), t("err_gio_missing"))
+
+    def mtp_unmount(self, device):
+        """卸载 gvfs MTP 挂载"""
+        busnum = device['busnum'].zfill(3)
+        devnum = device['devnum'].zfill(3)
+        uri = f"mtp://[usb:{busnum},{devnum}]"
+        try:
+            result = subprocess.run(["gio", "mount", "-u", uri], capture_output=True, text=True)
+            if result.returncode == 0:
+                self.status_bar.showMessage(t("mtp_unmounted"))
+                self.refresh_ui()
+            else:
+                QMessageBox.warning(self, t("err_title"), t("err_mtp_unmount", result.stderr.strip()))
+        except FileNotFoundError:
+            QMessageBox.warning(self, t("err_title"), t("err_gio_missing"))
+
+    def auto_mount_mtp(self, device):
+        """自动挂载 MTP 设备（静默，失败仅打日志）"""
+        busnum = device['busnum'].zfill(3)
+        devnum = device['devnum'].zfill(3)
+        uri = f"mtp://[usb:{busnum},{devnum}]"
+        try:
+            result = subprocess.run(["gio", "mount", uri], capture_output=True, text=True)
+            if result.returncode == 0:
+                self.status_bar.showMessage(t("mtp_mounted"))
+                self.refresh_ui()
+        except FileNotFoundError:
+            print("Auto MTP mount skipped: gio not found")
+        except Exception as e:
+            print(f"Auto MTP mount error: {e}")
+
+    def cleanup_mount_points(self):
+        """清理 USB-Storage 下的失效挂载与残留目录：
+        1. 空目录直接删除
+        2. 挂载点对应内核块设备已消失（/sys/class/block 中不存在，多为 mknod 残留节点）
+           → 幽灵挂载，umount 后删除
+        """
+        base = Path(MOUNT_BASE)
+        if not base.exists():
+            return
+        # 解析当前挂载：挂载点 -> 设备节点
+        mounts = {}
+        try:
+            result = subprocess.run(["mount"], capture_output=True, text=True)
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if len(parts) >= 3 and parts[2].startswith(str(base)):
+                    mounts[parts[2]] = parts[0]
+        except Exception:
+            pass
+        for item in base.iterdir():
+            if not item.is_dir():
+                continue
+            path = str(item)
+            # 1) 空目录直接删除
+            try:
+                item.rmdir()
+                continue
+            except OSError:
+                pass
+            # 2) 挂载点：内核块设备已消失则卸载后删除
+            dev = mounts.get(path)
+            if dev:
+                dev_name = dev.rsplit('/', 1)[-1]
+                if not os.path.exists(f"/sys/class/block/{dev_name}"):
+                    try:
+                        subprocess.run(
+                            ["sudo", "-n", "/usr/bin/umount", path],
+                            capture_output=True, text=True
+                        )
+                        item.rmdir()
+                    except OSError:
+                        pass
+
     def auto_mount(self, partition):
         """自动挂载分区"""
         node = partition['node']
@@ -799,7 +1230,7 @@ class MainWindow(QMainWindow):
         os.makedirs(mount_point, exist_ok=True)
 
         if fs_type in ['ntfs', 'ntfs3']:
-            cmd = f"sudo -n /usr/bin/mount -t ntfs-3g -o rw,no_def_opts,allow_other,umask=000 {node} {mount_point}"
+            cmd = f"sudo -n /usr/bin/mount -t ntfs-3g -o rw,no_def_opts,allow_other,uid={os.getuid()},gid={os.getgid()},umask=000 {node} {mount_point}"
         elif fs_type == 'exfat':
             cmd = f"sudo -n /usr/bin/mount -t exfat -o rw,uid={os.getuid()},gid={os.getgid()},umask=000 {node} {mount_point}"
         elif fs_type in ['vfat', 'fat32']:
@@ -840,7 +1271,7 @@ class MainWindow(QMainWindow):
 
         fs_type = partition.get('fs_type', '')
         if fs_type in ['ntfs', 'ntfs3']:
-            cmd = f"sudo -n /usr/bin/mount -t ntfs-3g -o rw,no_def_opts,allow_other,umask=000 {node} {mount_point}"
+            cmd = f"sudo -n /usr/bin/mount -t ntfs-3g -o rw,no_def_opts,allow_other,uid={os.getuid()},gid={os.getgid()},umask=000 {node} {mount_point}"
         else:
             cmd = f"sudo -n /usr/bin/mount {node} {mount_point}"
 
@@ -889,21 +1320,26 @@ class MainWindow(QMainWindow):
 
     def open_directory(self, path):
         """打开目录"""
-        if os.path.exists(path):
-            if os.access(path, os.R_OK):
-                subprocess.Popen(["dolphin", path])
-            else:
-                env = os.environ.copy()
-                subprocess.Popen(
-                    ["pkexec", "env",
-                     f"DISPLAY={env.get('DISPLAY', '')}",
-                     f"WAYLAND_DISPLAY={env.get('WAYLAND_DISPLAY', '')}",
-                     f"XDG_RUNTIME_DIR={env.get('XDG_RUNTIME_DIR', '')}",
-                     "dolphin", path],
-                    env=env
-                )
-        else:
+        if not os.path.exists(path):
             QMessageBox.information(self, t("info_title"), t("err_dir_missing", path))
+            return
+
+        fm = get_file_manager()
+        if fm is None:
+            cmd = ["xdg-open", path]
+        elif os.access(path, os.R_OK):
+            cmd = [fm, path]
+        else:
+            env = os.environ.copy()
+            cmd = ["pkexec", "env",
+                   f"DISPLAY={env.get('DISPLAY', '')}",
+                   f"WAYLAND_DISPLAY={env.get('WAYLAND_DISPLAY', '')}",
+                   f"XDG_RUNTIME_DIR={env.get('XDG_RUNTIME_DIR', '')}",
+                   fm, path]
+        try:
+            subprocess.Popen(cmd)
+        except FileNotFoundError as e:
+            QMessageBox.warning(self, t("err_title"), t("err_open_dir", str(e)))
 
     def show_about(self):
         """显示关于对话框"""
@@ -924,7 +1360,7 @@ class MainWindow(QMainWindow):
         name_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(name_label)
 
-        version_label = QLabel(f"{t('about_version')}: v1.2")
+        version_label = QLabel(f"{t('about_version')}: v1.3")
         version_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(version_label)
 
@@ -972,7 +1408,7 @@ class UsbTrayIcon(QSystemTrayIcon):
     """系统托盘图标"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setIcon(get_usb_icon())
+        self.setIcon(get_usb_icon(symbolic=True))
         self.setToolTip(t("tray_tip"))
 
         self.main_window = MainWindow(self)
@@ -1024,7 +1460,7 @@ def main():
     try:
         from PyQt5.QtWidgets import QApplication
     except ImportError:
-        print(t("err_pyqt5"))
+        print(t("err_pyqt5", pyqt5_install_hint()))
         sys.exit(1)
 
     # 加载配置（自动检测语言）

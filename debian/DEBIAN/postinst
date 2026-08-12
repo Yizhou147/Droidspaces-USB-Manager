@@ -19,6 +19,7 @@ ${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mkdir -p /dev/bus/usb/*
 ${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mknod -m 666 /dev/bus/usb/* c * *
 ${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/chmod 666 /dev/bus/usb/*
 ${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/rm /dev/bus/usb/*
+${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/blkid *
 ${CURRENT_USER} ALL=(root) NOPASSWD: /usr/sbin/blkid *
 ${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/bash /usr/share/usb-manager/usb-passthrough.sh
 EOF

@@ -1360,7 +1360,7 @@ class MainWindow(QMainWindow):
         name_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(name_label)
 
-        version_label = QLabel(f"{t('about_version')}: v1.2")
+        version_label = QLabel(f"{t('about_version')}: v1.3")
         version_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(version_label)
 
