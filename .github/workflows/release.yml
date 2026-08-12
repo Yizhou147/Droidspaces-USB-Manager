@@ -58,7 +58,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm --needed base-devel \
             python python-pyqt5 util-linux android-tools ntfs-3g exfatprogs \
-            gvfs-mtp gvfs-fuse kio-extras xdg-utils
+            gvfs gvfs-mtp kio-extras xdg-utils
           useradd -m builder
       - name: 打源码包并构建 Arch 包
         run: |

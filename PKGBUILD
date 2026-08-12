@@ -6,7 +6,7 @@ pkgdesc="Droidspaces USB 设备管理器：自动检测、挂载 USB 存储和 A
 arch=('any')
 url="https://github.com/Yizhou147/Droidspaces-USB-Manager"
 license=('MIT')
-depends=('python' 'python-pyqt5' 'util-linux' 'android-tools' 'ntfs-3g' 'exfatprogs' 'gvfs-mtp' 'gvfs-fuse' 'kio-extras' 'xdg-utils')
+depends=('python' 'python-pyqt5' 'util-linux' 'android-tools' 'ntfs-3g' 'exfatprogs' 'gvfs' 'gvfs-mtp' 'kio-extras' 'xdg-utils')
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')
 
