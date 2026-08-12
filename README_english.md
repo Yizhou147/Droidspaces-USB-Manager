@@ -126,9 +126,9 @@ usb-manager
 
 ### NTFS Permissions (important)
 
-Newer ntfs-3g (2026.x, e.g. on Fedora/Arch) ignores `uid/gid/umask/chmod` options entirely and maps every file to `root:1023 770`, making it inaccessible to normal users. `install.sh` handles this automatically by adding the desktop user to the gid 1023 `ntfsusb` group, granting direct read/write access without a password.
+ntfs-3g builds using the **integrated FUSE** architecture (2026.x on Fedora/Arch, and `2022.10.3 integrated FUSE` on Ubuntu 26.04) ignore the `uid/gid/umask/chmod` options entirely and map every file to `root:1023 770`, making it inaccessible to normal users. `install.sh` handles this automatically by adding the desktop user to the gid 1023 `ntfsusb` group, granting direct read/write access without a password (**log out and back in for the group to take effect**).
 
-On Debian 13 / Ubuntu (older ntfs-3g 2022.x), the `uid/gid` options work normally, so the mount point is owned by the user and no password is needed.
+On Debian 13 stable (traditional ntfs-3g 2022.10.3, non-integrated-FUSE), the `uid/gid` options work normally, so the mount point is owned by the user and no password is needed.
 
 ## Uninstall
 

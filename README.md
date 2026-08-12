@@ -126,9 +126,9 @@ usb-manager
 
 ### NTFS 权限说明（重要）
 
-新版 ntfs-3g（2026.x，如 Fedora/Arch 上的版本）挂载 NTFS 卷时，`uid/gid/umask/chmod` 等选项全部失效，所有文件固定映射为 `root:1023 770`，普通用户无法访问。`install.sh` 已自动处理：将桌面用户加入 gid 1023 的 `ntfsusb` 组，即可直接读写，无需输密码。
+ntfs-3g 的 **integrated FUSE** 架构版本（Fedora/Arch 的 2026.x、Ubuntu 26.04 的 `2022.10.3 integrated FUSE`）挂载 NTFS 卷时，`uid/gid/umask/chmod` 等选项全部失效，所有文件固定映射为 `root:1023 770`，普通用户无法访问。`install.sh` 已自动处理：将桌面用户加入 gid 1023 的 `ntfsusb` 组，即可直接读写，无需输密码（**加入组后需注销重新登录生效**）。
 
-Debian 13 / Ubuntu（ntfs-3g 2022.x 旧版）的 `uid/gid` 选项正常生效，挂载后属主即为用户，天然免密。
+Debian 13 stable 的传统 ntfs-3g（2022.10.3，非 integrated FUSE）`uid/gid` 选项正常生效，挂载后属主即为用户，天然免密。
 
 ## 卸载方法
 
