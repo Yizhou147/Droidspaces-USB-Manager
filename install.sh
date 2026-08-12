@@ -167,19 +167,19 @@ install_dependencies() {
             apt-get update
             apt-get install -y --no-install-recommends \
                 python3 python3-pyqt5 qtwayland5 libqt5svg5 udev util-linux sudo \
-                adb ntfs-3g exfatprogs desktop-file-utils \
+                adb ntfs-3g exfatprogs desktop-file-utils gvfs-backends gvfs-fuse kio-extras \
                 xdg-utils ca-certificates curl wget tar
             ;;
         dnf)
             dnf install -y --setopt=install_weak_deps=False \
                 python3 python3-qt5 qt5-qtwayland qt5-qtsvg systemd-udev util-linux sudo \
-                android-tools ntfs-3g exfatprogs desktop-file-utils \
+                android-tools ntfs-3g exfatprogs desktop-file-utils gvfs-mtp gvfs-fuse kio-extras \
                 xdg-utils ca-certificates curl wget tar
             ;;
         pacman)
             pacman -Syu --noconfirm --needed \
                 python python-pyqt5 qt5-wayland qt5-svg systemd util-linux sudo \
-                android-tools ntfs-3g exfatprogs desktop-file-utils \
+                android-tools ntfs-3g exfatprogs desktop-file-utils gvfs-mtp gvfs-fuse kio-extras \
                 xdg-utils ca-certificates curl wget tar
             ;;
     esac
@@ -274,8 +274,8 @@ install_program() {
     # Upstream currently assumes Debian's /usr/sbin path. /usr/bin is shared by
     # Debian/Ubuntu, Fedora, and Arch (including merged-/usr installations).
     # Keep upstream's X11 (xcb) backend preference to avoid Wayland compatibility issues.
+    # Note: blkid path is resolved dynamically at runtime (BLKID_CMD), no patch needed.
     sed -i \
-        -e 's|"/usr/sbin/blkid"|"/usr/bin/blkid"|g' \
         -e 's|"dolphin", path|"xdg-open", path|g' \
         -e 's|请运行: sudo apt install python3-pyqt5|请安装当前发行版的 PyQt5 软件包|g' \
         "$INSTALL_DIR/usb-manager.py"
@@ -338,8 +338,6 @@ EOF
 }
 
 validate_program() {
-    grep -Fq '"/usr/bin/blkid"' "$INSTALL_DIR/usb-manager.py" || die \
-        "未能应用 blkid 路径补丁。" "The blkid path patch could not be applied."
     grep -Fq '"xdg-open", path' "$INSTALL_DIR/usb-manager.py" || die \
         "未能应用文件管理器兼容补丁。" "The file-manager compatibility patch could not be applied."
     grep -Fq "SUDOERS_FILE=\"$SUDOERS_FILE\"" "$INSTALL_DIR/usb-storage-passthrough.sh" || die \
@@ -369,7 +367,8 @@ configure_permissions() {
 
     cat > "$sudoers_tmp" <<EOF
 # Droidspaces USB Manager: device-node creation and removable-media mounting
-Cmnd_Alias DROIDSPACES_USB_MANAGER = /usr/bin/mount *, /usr/bin/umount *, /usr/bin/mknod *, /usr/bin/chmod *, /usr/bin/mkdir -p /dev/bus/usb/*, /usr/bin/blkid *, /usr/bin/bash ${INSTALL_DIR}/usb-passthrough.sh
+# blkid 同时授权 /usr/bin 与 /usr/sbin 两种布局（不同发行版/版本位置不同）
+Cmnd_Alias DROIDSPACES_USB_MANAGER = /usr/bin/mount *, /usr/bin/umount *, /usr/bin/mknod *, /usr/bin/chmod *, /usr/bin/mkdir -p /dev/bus/usb/*, /usr/bin/blkid *, /usr/sbin/blkid *, /usr/bin/bash ${INSTALL_DIR}/usb-passthrough.sh
 ${TARGET_USER} ALL=(root) NOPASSWD: DROIDSPACES_USB_MANAGER
 EOF
 
