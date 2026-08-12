@@ -688,7 +688,7 @@ class ScanWorker(QThread):
 class MainWindow(QMainWindow):
     """主窗口"""
     # 设备树列宽比例（合计为 1.0），按窗口宽度百分比分配，适配不同缩放/分辨率
-    COLUMN_RATIOS = (0.30, 0.18, 0.18, 0.18, 0.16)
+    COLUMN_RATIOS = (0.36, 0.12, 0.12, 0.12, 0.28)
 
     def __init__(self, tray_icon=None):
         super().__init__()
