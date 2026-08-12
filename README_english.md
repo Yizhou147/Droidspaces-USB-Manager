@@ -34,7 +34,13 @@ sudo apt-get install -f  # Auto-install dependencies
 ```
 
 Fedora: `sudo dnf install ./usb-manager-1.3-1.fc44.noarch.rpm`
-Arch: `sudo pacman -U ./usb-manager-1.3-1-any.pkg.tar.zst`
+Arch:
+
+```bash
+# Locally built package has no GPG signature; temporarily disable signature checks (or sign it yourself)
+printf '[options]\nSigLevel = Never\n' > /tmp/pacman-nosig.conf
+sudo pacman -U --config /tmp/pacman-nosig.conf ./usb-manager-1.3-1-any.pkg.tar.zst
+```
 
 ### Method 2: Manual Installation (Debian/Ubuntu)
 

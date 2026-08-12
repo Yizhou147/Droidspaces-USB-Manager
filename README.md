@@ -34,7 +34,13 @@ sudo apt-get install -f  # 自动补齐依赖
 ```
 
 Fedora：`sudo dnf install ./usb-manager-1.3-1.fc44.noarch.rpm`
-Arch：`sudo pacman -U ./usb-manager-1.3-1-any.pkg.tar.zst`
+Arch：
+
+```bash
+# 本地构建的包无 GPG 签名，需临时忽略签名验证（或自行签名）
+printf '[options]\nSigLevel = Never\n' > /tmp/pacman-nosig.conf
+sudo pacman -U --config /tmp/pacman-nosig.conf ./usb-manager-1.3-1-any.pkg.tar.zst
+```
 
 ### 方法 2：手动安装（Debian/Ubuntu）
 
