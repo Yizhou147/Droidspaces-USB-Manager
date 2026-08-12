@@ -11,6 +11,7 @@ source=("$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')
 
 package() {
+  cd "$srcdir/$pkgname-$pkgver"
   install -d "$pkgdir/usr/share/usb-manager/icons"
   install -m 0644 src/usb-manager.py "$pkgdir/usr/share/usb-manager/"
   install -m 0755 src/usb-passthrough.sh "$pkgdir/usr/share/usb-manager/"
