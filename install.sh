@@ -179,7 +179,7 @@ install_dependencies() {
         pacman)
             pacman -Syu --noconfirm --needed \
                 python python-pyqt5 qt5-wayland qt5-svg systemd util-linux sudo \
-                android-tools ntfs-3g exfatprogs desktop-file-utils gvfs-mtp gvfs-fuse kio-extras \
+                android-tools ntfs-3g exfatprogs desktop-file-utils gvfs gvfs-mtp kio-extras \
                 xdg-utils ca-certificates curl wget tar
             ;;
     esac
