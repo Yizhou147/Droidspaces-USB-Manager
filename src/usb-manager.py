@@ -478,14 +478,14 @@ class ScanWorker(QThread):
             try:
                 subprocess.run(
                     ["sudo", "-n", "/usr/bin/mknod", "-m", "666", node, "b", major, minor],
-                    capture_output=True
+                    capture_output=True, timeout=10
                 )
                 subprocess.run(
                     ["sudo", "-n", "/usr/bin/chmod", "666", node],
-                    capture_output=True
+                    capture_output=True, timeout=10
                 )
                 return os.path.exists(node)
-            except:
+            except Exception:
                 return False
         return True
 
@@ -663,13 +663,13 @@ class ScanWorker(QThread):
     def get_mount_point(self, device):
         """获取设备的挂载点"""
         try:
-            result = subprocess.run(["mount"], capture_output=True, text=True)
+            result = subprocess.run(["mount"], capture_output=True, text=True, timeout=10)
             for line in result.stdout.splitlines():
                 if line.startswith(device + " "):
                     parts = line.split()
                     if len(parts) >= 3:
                         return parts[2]
-        except:
+        except Exception:
             pass
         return None
 
@@ -680,11 +680,30 @@ class ScanWorker(QThread):
         try:
             result = subprocess.run(
                 ["sudo", "-n", BLKID_CMD, "-s", "TYPE", "-o", "value", device],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=10
             )
             return result.stdout.strip() or None
-        except:
+        except Exception:
             return None
+
+
+class ActionWorker(QThread):
+    """后台线程：执行一组阻塞操作（挂载、创建设备节点、MTP 检测等），
+    完成后把结果通过 finished 信号回传主线程，避免阻塞 Qt 事件循环导致 UI 卡死。"""
+
+    finished = pyqtSignal(object)
+
+    def __init__(self, action, parent=None):
+        super().__init__(parent)
+        self._action = action
+
+    def run(self):
+        try:
+            result = self._action()
+        except Exception as e:
+            print(f"ActionWorker error: {e}")
+            result = None
+        self.finished.emit(result)
 
 
 class MainWindow(QMainWindow):
@@ -766,6 +785,9 @@ class MainWindow(QMainWindow):
         self.known_devices = set()
         self.auto_mounted_mtp = set()
         self.scan_paused = False
+        self.scan_worker = None
+        self.refresh_worker = None
+        self.prep_worker = None
 
         self.scan_timer = QTimer()
         self.scan_timer.timeout.connect(self.scan_devices)
@@ -822,8 +844,10 @@ class MainWindow(QMainWindow):
         self.apply_column_ratios()
 
     def scan_devices(self):
-        """扫描 USB 设备"""
+        """扫描 USB 设备（防重入：上一次扫描未完成则跳过，避免线程堆积）"""
         if self.scan_paused:
+            return
+        if self.scan_worker is not None and self.scan_worker.isRunning():
             return
         self.scan_worker = ScanWorker()
         self.scan_worker.finished.connect(self.update_device_tree)
@@ -850,14 +874,67 @@ class MainWindow(QMainWindow):
         self.scan_timer.setInterval(value * 1000)
 
     def refresh_ui(self):
-        """手动刷新界面（不触发自动扫描）"""
+        """手动刷新界面（不触发自动扫描，防重入）"""
+        if self.refresh_worker is not None and self.refresh_worker.isRunning():
+            return
         self.refresh_worker = ScanWorker()
         self.refresh_worker.finished.connect(self.update_device_tree)
         self.refresh_worker.start()
 
     def update_device_tree(self, storage_devices, adb_devices):
-        """更新设备树并自动挂载新设备"""
+        """扫描完成 → 后台线程执行阻塞操作（清理/自动挂载/ADB 节点/MTP），完成后再渲染 UI。
+        阻塞操作绝不在主线程执行，避免 subprocess 挂起时界面卡死。"""
+        if self.prep_worker is not None and self.prep_worker.isRunning():
+            return  # 上一次后台处理未完成，丢弃本次扫描结果（扫描节奏快于处理速度）
+        self.prep_worker = ActionWorker(
+            lambda: self.prepare_devices(storage_devices, adb_devices))
+        self.prep_worker.finished.connect(self.render_device_tree)
+        self.prep_worker.start()
+
+    def prepare_devices(self, storage_devices, adb_devices):
+        """后台线程：集中执行所有阻塞 subprocess 操作，并把结果写回设备信息。
+        返回 (storage_devices, adb_devices, mount_events)，供主线程渲染。"""
         self.cleanup_mount_points()
+        mount_events = []
+
+        # 1) 存储分区自动挂载（仅对首次出现且未挂载的分区）
+        for device in storage_devices:
+            for part in device['partitions']:
+                if not part['mounted'] and part['node'] not in self.known_devices:
+                    ok, mount_point = self.auto_mount(part)
+                    if ok:
+                        part['mounted'] = True
+                        part['mount_point'] = mount_point
+                        mount_events.append((part['name'], mount_point))
+
+        # 2) ADB/Fastboot 设备节点自动创建 + MTP 检测与自动挂载
+        for device in adb_devices:
+            busnum = device['busnum'].zfill(3)
+            devnum = device['devnum'].zfill(3)
+            node_path = f"/dev/bus/usb/{busnum}/{devnum}"
+            device['node'] = node_path
+
+            if device['type'] in ('adb', 'fastboot') and not os.path.exists(node_path):
+                self.run_passthrough_script()
+            device['exists'] = os.path.exists(node_path)
+
+            if device.get('mtp'):
+                device['mtp_mounted'] = self.is_mtp_mounted(device)
+                if not device['mtp_mounted']:
+                    # 检测到 MTP 后自动挂载（每个设备只尝试一次）
+                    mtp_key = f"{device['busnum']}:{device['devnum']}"
+                    if mtp_key not in self.auto_mounted_mtp:
+                        self.auto_mounted_mtp.add(mtp_key)
+                        if self.auto_mount_mtp(device):
+                            device['mtp_mounted'] = True
+
+        return (storage_devices, adb_devices, mount_events)
+
+    def render_device_tree(self, payload):
+        """主线程：纯 UI 渲染（无任何阻塞调用）"""
+        if payload is None:
+            return
+        storage_devices, adb_devices, mount_events = payload
         self.device_tree.clear()
 
         total_storage = 0
@@ -907,30 +984,17 @@ class MainWindow(QMainWindow):
 
                     self.device_tree.setItemWidget(part_item, 4, btn_widget)
                 else:
+                    # 自动挂载已在后台尝试过；仍失败则提供手动挂载按钮
                     part_item.setText(3, t("unmounted"))
                     part_item.setForeground(3, QColor("#FF9800"))
 
-                    if part['node'] not in self.known_devices:
-                        self.auto_mount(part)
-                    else:
-                        mount_btn = QPushButton(t("mount"))
-                        mount_btn.setStyleSheet("QPushButton { padding: 2px 6px; }")
-                        mount_btn.clicked.connect(lambda checked, p=part: self.mount_partition(p))
-                        self.device_tree.setItemWidget(part_item, 4, mount_btn)
+                    mount_btn = QPushButton(t("mount"))
+                    mount_btn.setStyleSheet("QPushButton { padding: 2px 6px; }")
+                    mount_btn.clicked.connect(lambda checked, p=part: self.mount_partition(p))
+                    self.device_tree.setItemWidget(part_item, 4, mount_btn)
 
         for device in adb_devices:
             total_adb += 1
-
-            busnum = device['busnum'].zfill(3)
-            devnum = device['devnum'].zfill(3)
-            node_path = f"/dev/bus/usb/{busnum}/{devnum}"
-            device['node'] = node_path
-            device['exists'] = os.path.exists(node_path)
-
-            # 仅对 Android 调试设备（ADB/Fastboot）自动创建 /dev/bus/usb 节点
-            if device['type'] in ('adb', 'fastboot') and not device['exists']:
-                self.auto_connect_adb(device)
-                device['exists'] = os.path.exists(node_path)
 
             dev_item = QTreeWidgetItem(self.device_tree)
             dev_item.setText(0, f"{device['name']} [{t(device.get('type_name', 'devtype_unknown'))}]")
@@ -962,7 +1026,7 @@ class MainWindow(QMainWindow):
                 mtp_item.setText(0, t("mtp_label"))
                 mtp_item.setText(2, "MTP")
 
-                if self.is_mtp_mounted(device):
+                if device.get('mtp_mounted'):
                     mtp_item.setText(3, t("mounted"))
                     mtp_item.setForeground(3, QColor("#4CAF50"))
 
@@ -985,12 +1049,6 @@ class MainWindow(QMainWindow):
                     mtp_item.setText(3, t("unmounted"))
                     mtp_item.setForeground(3, QColor("#FF9800"))
 
-                    # 检测到 MTP 后自动挂载（每个设备只尝试一次）
-                    mtp_key = f"{device['busnum']}:{device['devnum']}"
-                    if mtp_key not in self.auto_mounted_mtp:
-                        self.auto_mounted_mtp.add(mtp_key)
-                        self.auto_mount_mtp(device)
-
                     btn_widget = QWidget()
                     btn_layout = QHBoxLayout(btn_widget)
                     btn_layout.setContentsMargins(1, 1, 1, 1)
@@ -1003,6 +1061,17 @@ class MainWindow(QMainWindow):
                     self.device_tree.setItemWidget(mtp_item, 4, btn_widget)
 
         self.known_devices = current_devices
+
+        # 后台自动挂载成功的事件通知
+        for name, mount_point in mount_events:
+            self.status_bar.showMessage(t("auto_mount_status", name, mount_point))
+            if self.tray_icon:
+                self.tray_icon.showMessage(
+                    t("notify_mount_title"),
+                    t("notify_mount_msg", name, mount_point),
+                    QSystemTrayIcon.Information,
+                    3000
+                )
 
         status_parts = []
         if total_storage > 0:
@@ -1030,14 +1099,14 @@ class MainWindow(QMainWindow):
             try:
                 subprocess.run(
                     ["sudo", "-n", "/usr/bin/mknod", "-m", "666", node, "b", major, minor],
-                    capture_output=True
+                    capture_output=True, timeout=10
                 )
                 subprocess.run(
                     ["sudo", "-n", "/usr/bin/chmod", "666", node],
-                    capture_output=True
+                    capture_output=True, timeout=10
                 )
                 return os.path.exists(node)
-            except:
+            except Exception:
                 return False
         return True
 
@@ -1049,12 +1118,12 @@ class MainWindow(QMainWindow):
         node_path = f"/dev/bus/usb/{busnum}/{devnum}"
 
         try:
-            subprocess.run(["sudo", "-n", "/usr/bin/mkdir", "-p", node_dir], capture_output=True)
+            subprocess.run(["sudo", "-n", "/usr/bin/mkdir", "-p", node_dir], capture_output=True, timeout=10)
             subprocess.run(
                 ["sudo", "-n", "/usr/bin/mknod", "-m", "666", node_path, "c", "188", f"{int(busnum)*128+int(devnum)}"],
-                capture_output=True
+                capture_output=True, timeout=10
             )
-            subprocess.run(["sudo", "-n", "/usr/bin/chmod", "666", node_path], capture_output=True)
+            subprocess.run(["sudo", "-n", "/usr/bin/chmod", "666", node_path], capture_output=True, timeout=10)
 
             self.status_bar.showMessage(t("adb_node_created", node_path))
             self.scan_devices()
@@ -1071,37 +1140,45 @@ class MainWindow(QMainWindow):
         try:
             result = subprocess.run(
                 ["sudo", "-n", "bash", script_path],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=30
             )
             if result.returncode == 0:
                 self.status_bar.showMessage(t("adb_connected"))
                 self.scan_devices()
             else:
                 QMessageBox.warning(self, t("err_adb_connect_title"), t("err_adb_connect", result.stderr))
+        except subprocess.TimeoutExpired:
+            QMessageBox.warning(self, t("err_adb_connect_title"),
+                                t("err_adb_connect", "usb-passthrough.sh 执行超时（30s）"))
         except Exception as e:
             QMessageBox.warning(self, t("err_title"), t("err_adb_error", str(e)))
 
-    def auto_connect_adb(self, device):
-        """自动连接 ADB 设备"""
+    def run_passthrough_script(self):
+        """执行 usb-passthrough.sh 创建 ADB/Fastboot 设备节点（后台线程调用，带超时）。
+        返回是否成功；超时或失败不阻塞 UI。"""
         script_path = os.path.join(os.path.dirname(__file__), "usb-passthrough.sh")
         if not os.path.exists(script_path):
-            return
+            return False
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["sudo", "-n", "bash", script_path],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=30
             )
-        except:
-            pass
+            return result.returncode == 0
+        except subprocess.TimeoutExpired:
+            print("usb-passthrough.sh timed out (30s)")
+        except Exception as e:
+            print(f"usb-passthrough.sh error: {e}")
+        return False
 
     def is_mtp_mounted(self, device):
         """检查 MTP 设备是否已通过 gvfs 挂载（gio mount -l 匹配 mtp://[usb:bus,dev]）"""
         busnum = device['busnum'].zfill(3)
         devnum = device['devnum'].zfill(3)
         try:
-            result = subprocess.run(["gio", "mount", "-l"], capture_output=True, text=True)
+            result = subprocess.run(["gio", "mount", "-l"], capture_output=True, text=True, timeout=10)
             return f"mtp://[usb:{busnum},{devnum}]" in result.stdout
-        except FileNotFoundError:
+        except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
 
     def mtp_mount(self, device):
@@ -1110,12 +1187,14 @@ class MainWindow(QMainWindow):
         devnum = device['devnum'].zfill(3)
         uri = f"mtp://[usb:{busnum},{devnum}]"
         try:
-            result = subprocess.run(["gio", "mount", uri], capture_output=True, text=True)
+            result = subprocess.run(["gio", "mount", uri], capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
                 self.status_bar.showMessage(t("mtp_mounted"))
                 self.refresh_ui()
             else:
                 QMessageBox.warning(self, t("err_title"), t("err_mtp_mount", result.stderr.strip()))
+        except subprocess.TimeoutExpired:
+            QMessageBox.warning(self, t("err_title"), t("err_mtp_mount", "gio mount 超时（15s）"))
         except FileNotFoundError:
             QMessageBox.warning(self, t("err_title"), t("err_gio_missing"))
 
@@ -1170,29 +1249,30 @@ class MainWindow(QMainWindow):
         devnum = device['devnum'].zfill(3)
         uri = f"mtp://[usb:{busnum},{devnum}]"
         try:
-            result = subprocess.run(["gio", "mount", "-u", uri], capture_output=True, text=True)
+            result = subprocess.run(["gio", "mount", "-u", uri], capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
                 self.status_bar.showMessage(t("mtp_unmounted"))
                 self.refresh_ui()
             else:
                 QMessageBox.warning(self, t("err_title"), t("err_mtp_unmount", result.stderr.strip()))
+        except subprocess.TimeoutExpired:
+            QMessageBox.warning(self, t("err_title"), t("err_mtp_unmount", "gio mount -u 超时（15s）"))
         except FileNotFoundError:
             QMessageBox.warning(self, t("err_title"), t("err_gio_missing"))
 
     def auto_mount_mtp(self, device):
-        """自动挂载 MTP 设备（静默，失败仅打日志）"""
+        """自动挂载 MTP 设备（后台线程调用）；返回是否挂载成功"""
         busnum = device['busnum'].zfill(3)
         devnum = device['devnum'].zfill(3)
         uri = f"mtp://[usb:{busnum},{devnum}]"
         try:
-            result = subprocess.run(["gio", "mount", uri], capture_output=True, text=True)
-            if result.returncode == 0:
-                self.status_bar.showMessage(t("mtp_mounted"))
-                self.refresh_ui()
+            result = subprocess.run(["gio", "mount", uri], capture_output=True, text=True, timeout=15)
+            return result.returncode == 0
         except FileNotFoundError:
             print("Auto MTP mount skipped: gio not found")
         except Exception as e:
             print(f"Auto MTP mount error: {e}")
+        return False
 
     def cleanup_mount_points(self):
         """清理 USB-Storage 下的失效挂载与残留目录：
@@ -1206,7 +1286,7 @@ class MainWindow(QMainWindow):
         # 解析当前挂载：挂载点 -> 设备节点
         mounts = {}
         try:
-            result = subprocess.run(["mount"], capture_output=True, text=True)
+            result = subprocess.run(["mount"], capture_output=True, text=True, timeout=10)
             for line in result.stdout.splitlines():
                 parts = line.split()
                 if len(parts) >= 3 and parts[2].startswith(str(base)):
@@ -1231,14 +1311,14 @@ class MainWindow(QMainWindow):
                     try:
                         subprocess.run(
                             ["sudo", "-n", "/usr/bin/umount", path],
-                            capture_output=True, text=True
+                            capture_output=True, text=True, timeout=10
                         )
                         item.rmdir()
                     except OSError:
                         pass
 
     def auto_mount(self, partition):
-        """自动挂载分区"""
+        """自动挂载分区（后台线程调用）；返回 (是否成功, 挂载点)"""
         node = partition['node']
         major = partition['major']
         minor = partition['minor']
@@ -1247,7 +1327,7 @@ class MainWindow(QMainWindow):
         self.create_device_node(node, major, minor)
 
         if not os.path.exists(node):
-            return
+            return (False, None)
 
         mount_point = os.path.join(MOUNT_BASE, partition['name'])
         os.makedirs(mount_point, exist_ok=True)
@@ -1262,20 +1342,14 @@ class MainWindow(QMainWindow):
             cmd = f"sudo -n /usr/bin/mount {node} {mount_point}"
 
         try:
-            result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
+            result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=20)
             if result.returncode == 0:
-                self.status_bar.showMessage(t("auto_mount_status", node, mount_point))
-                if self.tray_icon:
-                    self.tray_icon.showMessage(
-                        t("notify_mount_title"),
-                        t("notify_mount_msg", partition['name'], mount_point),
-                        QSystemTrayIcon.Information,
-                        3000
-                    )
+                return (True, mount_point)
             else:
                 print(f"Auto mount failed: {result.stderr}")
         except Exception as e:
             print(f"Auto mount error: {e}")
+        return (False, None)
 
     def mount_partition(self, partition):
         """手动挂载分区"""
@@ -1299,14 +1373,17 @@ class MainWindow(QMainWindow):
             cmd = f"sudo -n /usr/bin/mount {node} {mount_point}"
 
         try:
-            result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
+            result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=20)
             if result.returncode == 0:
-                subprocess.run(["sudo", "-n", "/usr/bin/chmod", "-R", "777", mount_point])
+                subprocess.run(["sudo", "-n", "/usr/bin/chmod", "-R", "777", mount_point],
+                               capture_output=True, timeout=10)
                 self.status_bar.showMessage(t("mount_status", node, mount_point))
                 self.scan_paused = False
                 self.scan_devices()
             else:
                 QMessageBox.warning(self, t("err_mount_failed", result.stderr))
+        except subprocess.TimeoutExpired:
+            QMessageBox.warning(self, t("err_title"), t("err_mount_error", "mount 超时（20s）"))
         except Exception as e:
             QMessageBox.warning(self, t("err_title"), t("err_mount_error", str(e)))
 
@@ -1319,11 +1396,14 @@ class MainWindow(QMainWindow):
             try:
                 result = subprocess.run(
                     ["sudo", "-n", "/usr/bin/umount", mount_point],
-                    capture_output=True, text=True
+                    capture_output=True, text=True, timeout=15
                 )
                 if result.returncode != 0:
                     QMessageBox.warning(self, t("err_eject_title"), t("err_eject_failed", result.stderr))
                     return
+            except subprocess.TimeoutExpired:
+                QMessageBox.warning(self, t("err_title"), t("err_eject_error", "umount 超时（15s）"))
+                return
             except Exception as e:
                 QMessageBox.warning(self, t("err_title"), t("err_eject_error", str(e)))
                 return

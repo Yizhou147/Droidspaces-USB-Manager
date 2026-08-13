@@ -118,9 +118,8 @@ echo -e "${YELLOW}[3/3] 测试 ADB...${NC}"
 echo ""
 
 if command -v adb &>/dev/null; then
-    adb kill-server 2>/dev/null || true
-    sleep 1
-    ADB_OUTPUT=$(adb devices 2>&1)
+    # 不重启 adb server（adb devices 会自动启动）；加 timeout 防止 adb 挂起导致调用方卡死
+    ADB_OUTPUT=$(timeout 10 adb devices 2>&1) || ADB_OUTPUT="${ADB_OUTPUT:-adb devices 超时或无响应}"
     echo "$ADB_OUTPUT"
 
     if echo "$ADB_OUTPUT" | grep -q "device$"; then
