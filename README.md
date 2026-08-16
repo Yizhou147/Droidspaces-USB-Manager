@@ -24,7 +24,33 @@ USB 设备管理工具，专为 **Droidspaces** Linux 容器环境设计，自�
 
 ## 安装方法
 
-### 方法 1：使用 deb 包（Debian/Ubuntu）
+### 方法 1：通用安装脚本（推荐，支持全平台）
+
+项目内置跨发行版安装脚本 `install.sh`，自动检测 apt / dnf / pacman 并安装依赖，支持 Debian/Ubuntu、Arch、Fedora：
+
+```bash
+git clone https://github.com/Yizhou147/Droidspaces-USB-Manager.git
+cd Droidspaces-USB-Manager
+sudo bash install.sh
+```
+
+也可以直接下载脚本运行，无需克隆整个仓库：
+
+```bash
+curl -fsSL -o /tmp/usb-manager-install.sh https://raw.githubusercontent.com/Yizhou147/Droidspaces-USB-Manager/main/install.sh
+sudo bash /tmp/usb-manager-install.sh
+```
+
+脚本特性：
+- 自动拉取最新源码安装（或 `--source DIR` 指定本地源码目录）
+- 自动安装依赖（PyQt5、udev、util-linux、ntfs-3g 等）
+- 配置免密码挂载（含 visudo 校验）与桌面快捷方式
+- 将桌面用户加入 `ntfsusb` 组，解决新版 ntfs-3g 挂载 NTFS 卷的权限问题
+- `--user USER` 可指定桌面用户
+
+> **原作者致谢**：`install.sh` 由 [Goldzxcbug](https://github.com/Goldzxcbug) 编写（出自其 [Droidspaces-rootfs-KDE-builder](https://github.com/Goldzxcbug/Droidspaces-rootfs-KDE-builder) 仓库的 `scripts/install-usb-manager.sh`），供构建容器镜像时安装 USB Manager。本仓库在原脚本基础上升级维护，新增：MTP 依赖（gvfs/kio-extras）、blkid 路径动态检测、sudoers 双路径授权等。
+
+### 方法 2：使用安装包（Debian/Ubuntu 用 deb、Fedora 用 rpm、Arch 用 Arch 包）
 
 从 [Releases](https://github.com/Yizhou147/Droidspaces-USB-Manager/releases) 下载最新版（v1.3，含 deb / rpm / Arch 三种包）：
 
@@ -42,9 +68,9 @@ printf '[options]\nSigLevel = Never\n' > /tmp/pacman-nosig.conf
 sudo pacman -U --config /tmp/pacman-nosig.conf ./usb-manager-1.3-1-any.pkg.tar.zst
 ```
 
-### 方法 2：手动安装（Debian/Ubuntu）
+### 方法 3：手动安装（Debian/Ubuntu）
 
-> 权限（sudoers / ntfsusb 组）配置较繁琐，**更推荐使用方法 3 的 `install.sh` 自动完成**。手动安装仅需：
+> 权限（sudoers / ntfsusb 组）配置较繁琐，**更推荐使用方法 1 的 `install.sh` 自动完成**。手动安装仅需：
 
 ```bash
 # 安装依赖
@@ -62,28 +88,6 @@ sudo cp desktop/usb-manager.desktop /usr/share/applications/
 sudo cp debian/usr/bin/usb-manager /usr/bin/
 sudo chmod +x /usr/bin/usb-manager
 ```
-
-### 方法 3：Arch / Fedora 通用安装脚本（推荐）
-
-项目内置跨发行版安装脚本 `install.sh`，自动检测 apt / dnf / pacman 并安装依赖，支持 Debian/Ubuntu、Arch、Fedora：
-
-```bash
-# 克隆仓库（本机直连 GitHub 不稳定时使用镜像站）
-git clone https://gh-proxy.com/https://github.com/Yizhou147/Droidspaces-USB-Manager.git
-cd Droidspaces-USB-Manager
-
-# 运行安装脚本
-sudo bash install.sh
-```
-
-脚本特性：
-- 自动拉取最新源码安装（或 `--source DIR` 指定本地源码目录）
-- 自动安装依赖（PyQt5、udev、util-linux、ntfs-3g 等）
-- 配置免密码挂载（含 visudo 校验）与桌面快捷方式
-- 将桌面用户加入 `ntfsusb` 组，解决新版 ntfs-3g 挂载 NTFS 卷的权限问题
-- `--user USER` 可指定桌面用户
-
-> **原作者致谢**：`install.sh` 由 [Goldzxcbug](https://github.com/Goldzxcbug) 编写（出自其 [Droidspaces-rootfs-KDE-builder](https://github.com/Goldzxcbug/Droidspaces-rootfs-KDE-builder) 仓库的 `scripts/install-usb-manager.sh`），供构建容器镜像时安装 USB Manager。本仓库在原脚本基础上升级维护，新增：MTP 依赖（gvfs/kio-extras）、blkid 路径动态检测、sudoers 双路径授权等。
 
 ## 使用方法
 
