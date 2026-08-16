@@ -324,7 +324,7 @@ Icon=${icon_path}
 Terminal=false
 Type=Application
 Categories=System;
-StartupNotify=true
+StartupNotify=false
 EOF
 
     install -d -m 0755 -o "$TARGET_USER" -g "$TARGET_GROUP" "$TARGET_HOME/Desktop"

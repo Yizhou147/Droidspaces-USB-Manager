@@ -24,7 +24,33 @@ USB device management tool designed for the **Droidspaces** Linux container envi
 
 ## Installation
 
-### Method 1: Using deb package (Debian/Ubuntu)
+### Method 1: Cross-distro install script (recommended, all platforms)
+
+The repository bundles a cross-distro installer `install.sh` that auto-detects apt / dnf / pacman and installs dependencies. Supports Debian/Ubuntu, Arch, and Fedora:
+
+```bash
+git clone https://github.com/Yizhou147/Droidspaces-USB-Manager.git
+cd Droidspaces-USB-Manager
+sudo bash install.sh
+```
+
+You can also download and run the script directly without cloning the whole repository:
+
+```bash
+curl -fsSL -o /tmp/usb-manager-install.sh https://raw.githubusercontent.com/Yizhou147/Droidspaces-USB-Manager/main/install.sh
+sudo bash /tmp/usb-manager-install.sh
+```
+
+Script features:
+- Pulls the latest sources for installation (or `--source DIR` to use a local source directory)
+- Auto-installs dependencies (PyQt5, udev, util-linux, ntfs-3g, etc.)
+- Configures passwordless mounting (with visudo validation) and a desktop shortcut
+- Adds the desktop user to the `ntfsusb` group to fix NTFS permission issues with newer ntfs-3g
+- `--user USER` to specify the desktop user
+
+> **Author credit**: `install.sh` was written by [Goldzxcbug](https://github.com/Goldzxcbug) (from `scripts/install-usb-manager.sh` in his [Droidspaces-rootfs-KDE-builder](https://github.com/Goldzxcbug/Droidspaces-rootfs-KDE-builder) repository), used when building container images. This repository maintains and extends the original script with: MTP dependencies (gvfs/kio-extras), dynamic blkid path detection, and dual-path sudoers authorization.
+
+### Method 2: Packages (deb for Debian/Ubuntu, rpm for Fedora, Arch package for Arch)
 
 Download the latest release (v1.3, includes deb / rpm / Arch packages) from [Releases](https://github.com/Yizhou147/Droidspaces-USB-Manager/releases):
 
@@ -42,9 +68,9 @@ printf '[options]\nSigLevel = Never\n' > /tmp/pacman-nosig.conf
 sudo pacman -U --config /tmp/pacman-nosig.conf ./usb-manager-1.3-1-any.pkg.tar.zst
 ```
 
-### Method 2: Manual Installation (Debian/Ubuntu)
+### Method 3: Manual Installation (Debian/Ubuntu)
 
-> Permission setup (sudoers / ntfsusb group) is tedious; **Method 3 with `install.sh` is recommended**. Manual install only needs:
+> Permission setup (sudoers / ntfsusb group) is tedious; **Method 1 with `install.sh` is recommended**. Manual install only needs:
 
 ```bash
 # Install dependencies
@@ -62,28 +88,6 @@ sudo cp desktop/usb-manager.desktop /usr/share/applications/
 sudo cp debian/usr/bin/usb-manager /usr/bin/
 sudo chmod +x /usr/bin/usb-manager
 ```
-
-### Method 3: Cross-distro Install Script (Arch / Fedora, recommended)
-
-The repository bundles a cross-distro installer `install.sh` that auto-detects apt / dnf / pacman and installs dependencies. Supports Debian/Ubuntu, Arch, and Fedora:
-
-```bash
-# Clone the repository (use the mirror prefix if direct GitHub access is unstable)
-git clone https://gh-proxy.com/https://github.com/Yizhou147/Droidspaces-USB-Manager.git
-cd Droidspaces-USB-Manager
-
-# Run the installer
-sudo bash install.sh
-```
-
-Script features:
-- Pulls the latest sources for installation (or `--source DIR` to use a local source directory)
-- Auto-installs dependencies (PyQt5, udev, util-linux, ntfs-3g, etc.)
-- Configures passwordless mounting (with visudo validation) and a desktop shortcut
-- Adds the desktop user to the `ntfsusb` group to fix NTFS permission issues with newer ntfs-3g
-- `--user USER` to specify the desktop user
-
-> **Author credit**: `install.sh` was written by [Goldzxcbug](https://github.com/Goldzxcbug) (from `scripts/install-usb-manager.sh` in his [Droidspaces-rootfs-KDE-builder](https://github.com/Goldzxcbug/Droidspaces-rootfs-KDE-builder) repository), used when building container images. This repository maintains and extends the original script with: MTP dependencies (gvfs/kio-extras), dynamic blkid path detection, and dual-path sudoers authorization.
 
 ## Usage
 
