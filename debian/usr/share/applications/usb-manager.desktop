@@ -9,4 +9,4 @@ Terminal=false
 Type=Application
 Categories=GNOME;Utility;System;
 Keywords=usb;storage;mount;adb;android;
-StartupNotify=true
+StartupNotify=false

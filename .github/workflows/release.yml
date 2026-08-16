@@ -14,6 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: 从 src/ 同步代码到 deb 包目录（与 rpm/arch 同模式，避免 debian/ 与 src/ 脱节）
+        run: |
+          cp src/usb-manager.py debian/usr/share/usb-manager/usb-manager.py
+          cp src/usb-passthrough.sh debian/usr/share/usb-manager/usb-passthrough.sh
+          cp src/usb-storage-passthrough.sh debian/usr/share/usb-manager/usb-storage-passthrough.sh
+          cp -r icons/. debian/usr/share/usb-manager/icons/
       - name: 更新版本号并构建 deb
         run: |
           sed -i "s/^Version: .*/Version: ${{ inputs.version }}-1/" debian/DEBIAN/control

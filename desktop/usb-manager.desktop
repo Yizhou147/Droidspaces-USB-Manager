@@ -9,4 +9,4 @@ Terminal=false
 Type=Application
 Categories=System;
 Keywords=usb;storage;mount;adb;android;mtp;fastboot;
-StartupNotify=true
+StartupNotify=false

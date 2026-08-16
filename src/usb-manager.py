@@ -1548,10 +1548,14 @@ class UsbTrayIcon(QSystemTrayIcon):
         self.setToolTip(t("tray_tip"))
 
     def show_main_window(self):
-        """显示主窗口"""
-        self.main_window.show()
-        self.main_window.raise_()
-        self.main_window.activateWindow()
+        """显示主窗口（从最小化/托盘恢复并前置）"""
+        win = self.main_window
+        # 显式清除最小化状态：Qt 的 show() 在部分窗口管理器（如 Plasma Wayland）下
+        # 不会自动恢复最小化窗口，必须先取消 WindowMinimized 再前置
+        win.setWindowState(win.windowState() & ~Qt.WindowMinimized)
+        win.show()
+        win.raise_()
+        win.activateWindow()
 
     def on_activated(self, reason):
         """托盘图标被点击"""
