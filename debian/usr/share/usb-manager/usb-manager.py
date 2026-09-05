@@ -62,6 +62,7 @@ TRANSLATIONS = {
         "eject": "弹出",
         "mount": "挂载",
         "connect": "连接",
+        "preview": "预览",
         "scan_resumed": "已恢复自动扫描",
         "scan_paused": "自动扫描已暂停",
         "eject_status": "已弹出 {} - 自动扫描已暂停，点击 刷新 恢复",
@@ -92,6 +93,8 @@ TRANSLATIONS = {
         "err_script_missing": "找不到脚本: {}",
         "err_adb_connect": "无法连接 ADB 设备:\n{}",
         "err_adb_error": "连接 ADB 设备出错:\n{}",
+        "err_preview": "无法预览采集画面:\n{}",
+        "err_previewer_missing": "未安装 ffplay/ffmpeg，无法预览采集画面，请安装 ffmpeg",
         "err_adb_node_failed": "创建 ADB 设备节点失败:\n{}",
         "err_adb_connect_title": "连接失败",
         "err_title": "错误",
@@ -151,6 +154,7 @@ TRANSLATIONS = {
         "eject": "Eject",
         "mount": "Mount",
         "connect": "Connect",
+        "preview": "Preview",
         "scan_resumed": "Auto scan resumed",
         "scan_paused": "Auto scan paused",
         "eject_status": "Ejected {} - Auto scan paused, click Refresh to resume",
@@ -181,6 +185,8 @@ TRANSLATIONS = {
         "err_script_missing": "Script not found: {}",
         "err_adb_connect": "Cannot connect ADB device:\n{}",
         "err_adb_error": "ADB connect error:\n{}",
+        "err_preview": "Cannot preview capture:\n{}",
+        "err_previewer_missing": "ffplay/ffmpeg is not installed. Install ffmpeg to preview the capture",
         "err_adb_node_failed": "Failed to create ADB device node:\n{}",
         "err_adb_connect_title": "Connect Failed",
         "err_title": "Error",
@@ -404,7 +410,9 @@ def classify_usb_device(usb_dev):
     if devclass == "09":
         return ("hub", "devtype_hub")
 
-    if devclass is None or devclass == "00":
+    # 0xef = Miscellaneous（多接口/Interface Association），设备级类码不能代表整机，
+    # 与 0x00 一样需按接口判定（UVC 采集卡等）
+    if devclass is None or devclass in ("00", "ef"):
         # 遍历接口目录（如 1-1:1.0），优先判定 Android 调试接口
         is_adb = False
         is_fastboot = False
@@ -461,6 +469,77 @@ def has_mtp_interface(usb_dev):
         pass
     return False
 
+
+
+def get_uvc_v4l_nodes(usb_dev):
+    """反查该 USB 设备对应的 /dev/video* 节点清单（通过 video4linux sysfs 匹配）。
+
+    devtmpfs 在部分容器中不会为 UVC 设备自动创建设备节点，因此 usb-manager
+    需要自行补齐。返回 [{'name','node','major','minor'}, ...]；非视频设备返回空。
+    """
+    nodes = []
+    try:
+        prefix = str(usb_dev.resolve())
+    except Exception:
+        prefix = str(usb_dev)
+    if not prefix:
+        return nodes
+
+    v4l_base = Path("/sys/class/video4linux")
+    if not v4l_base.exists():
+        return nodes
+    try:
+        video_dirs = list(v4l_base.glob("video[0-9]*"))
+    except Exception:
+        return nodes
+
+    for vp in video_dirs:
+        try:
+            dev_real = str((vp / "device").resolve())
+        except Exception:
+            continue
+        # 仅匹配属于该 USB 设备（其 device 链接解析后的路径应位于该设备路径下）
+        if dev_real != prefix and not dev_real.startswith(prefix + "/"):
+            continue
+        dev_map = _read_sysfs(vp / "dev")
+        if not dev_map or ":" not in dev_map:
+            continue
+        major, minor = dev_map.split(":", 1)
+        nodes.append({
+            "name": vp.name,
+            "node": f"/dev/{vp.name}",
+            "major": major,
+            "minor": minor,
+        })
+    return nodes
+
+
+# V4L2 capability 位（linux/videodev2.h）：用于区分真正的视频采集节点与
+# metadata 节点。UVC 采集卡常注册两个节点：videoX(视频流) + videoX+1(metadata)，
+# metadata 节点无法出画面，必须排除。
+_V4L2_CAP_VIDEO_CAPTURE = 0x00000001
+_V4L2_CAP_STREAMING = 0x04000000
+
+
+def _v4l_device_caps(node):
+    """通过 VIDIOC_QUERYCAP 读取节点 device_caps（返回 int），失败返回 None。
+    metadata 节点无 VIDEO_CAPTURE 位，可用于剔除不可出画面的节点。"""
+    import fcntl
+    import struct as _struct
+    try:
+        fd = os.open(node, os.O_RDONLY | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        buf = bytearray(104)  # struct v4l2_capability 大小
+        # VIDIOC_QUERYCAP = _IOR('V', 0, struct v4l2_capability)
+        fcntl.ioctl(fd, 0x80685600, buf, True)
+        # device_caps 位于 offset 88；capabilities 位于 offset 84
+        return _struct.unpack_from("<I", buf, 88)[0]
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
 
 
 class ScanWorker(QThread):
@@ -558,6 +637,7 @@ class ScanWorker(QThread):
                     "devnum": devnum,
                     "devclass": devclass,
                     "mtp": is_mtp,
+                    "v4l_nodes": get_uvc_v4l_nodes(usb_dev),
                     "exists": os.path.exists(node_path)
                 }
 
@@ -918,6 +998,10 @@ class MainWindow(QMainWindow):
                 self.run_passthrough_script()
             device['exists'] = os.path.exists(node_path)
 
+            # UVC 采集卡：自动补齐 /dev/video* 节点（devtmpfs 可能未创建）
+            if device.get('type') == 'video':
+                self.ensure_video_nodes(device)
+
             if device.get('mtp'):
                 device['mtp_mounted'] = self.is_mtp_mounted(device)
                 if not device['mtp_mounted']:
@@ -1002,7 +1086,28 @@ class MainWindow(QMainWindow):
             dev_item.setText(2, f"USB {device['devclass']}")
             dev_item.setExpanded(True)  # 默认展开，避免每次重扫后收起（MTP 子项可见）
 
-            if device['exists']:
+            is_video = device['type'] == 'video'
+            if is_video:
+                # UVC 采集卡：节点已补齐则就绪，提供"预览"按钮
+                v4l = device.get('v4l_ready')
+                if v4l:
+                    dev_item.setText(3, t("ready"))
+                    dev_item.setForeground(3, QColor("#4CAF50"))
+
+                    btn_widget = QWidget()
+                    btn_layout = QHBoxLayout(btn_widget)
+                    btn_layout.setContentsMargins(2, 2, 2, 2)
+
+                    preview_btn = QPushButton(t("preview"))
+                    preview_btn.setStyleSheet("QPushButton { padding: 2px 6px; }")
+                    preview_btn.clicked.connect(lambda checked, n=v4l: self.preview_capture(n))
+                    btn_layout.addWidget(preview_btn)
+
+                    self.device_tree.setItemWidget(dev_item, 4, btn_widget)
+                else:
+                    dev_item.setText(3, t("disconnected"))
+                    dev_item.setForeground(3, QColor("#FF9800"))
+            elif device['exists']:
                 dev_item.setText(3, t("connected"))
                 dev_item.setForeground(3, QColor("#4CAF50"))
             else:
@@ -1170,6 +1275,116 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"usb-passthrough.sh error: {e}")
         return False
+
+    def _video_node_matches(self, node, major, minor):
+        """节点存在且 (major,minor) 与 sysfs 一致才算有效。
+        stale 节点（文件在但设备号已因拔插漂移）open 会 ENXIO/黑屏，
+        仅 os.path.exists 无法识别，必须比对设备号。"""
+        try:
+            st = os.stat(node)
+        except OSError:
+            return False
+        return st.st_rdev == os.makedev(int(major), int(minor))
+
+    def _unlink_node(self, node):
+        """删除设备节点：先试 sudo rm（可能不在 sudoers），失败退回普通 unlink。"""
+        try:
+            subprocess.run(["sudo", "-n", "/usr/bin/rm", "-f", node],
+                           capture_output=True, timeout=10)
+        except Exception:
+            pass
+        if os.path.lexists(node):
+            try:
+                os.unlink(node)
+            except OSError:
+                pass
+
+    def ensure_video_nodes(self, device):
+        """后台线程：校正 UVC 采集卡的 /dev/video* 节点。
+        devtmpfs 在部分容器不会自动建节点、拔插后 video 号又会漂移，
+        旧 mknod 节点会 stale。这里逐个与 sysfs 设备号核对：
+        缺失→创建；存在但号不符→删除重建。只有真正匹配的节点才标记就绪，
+        避免把失效节点交给预览按钮。"""
+        for n in device.get('v4l_nodes', []):
+            node, major, minor = n['node'], n['major'], n['minor']
+            if self._video_node_matches(node, major, minor):
+                continue
+            if os.path.lexists(node):
+                self._unlink_node(node)
+            try:
+                subprocess.run(
+                    ["sudo", "-n", "/usr/bin/mknod", "-m", "666", node,
+                     "c", major, minor],
+                    capture_output=True, timeout=10
+                )
+                subprocess.run(
+                    ["sudo", "-n", "/usr/bin/chmod", "666", node],
+                    capture_output=True, timeout=10
+                )
+            except Exception:
+                pass
+        device['v4l_ready'] = next(
+            (n['node'] for n in device.get('v4l_nodes', [])
+             if self._video_node_matches(n['node'], n['major'], n['minor'])
+             and (_v4l_device_caps(n['node']) or 0) & _V4L2_CAP_VIDEO_CAPTURE),
+            None)
+        # 若能力探测全部失败（如无权限），退回任一个 rdev 匹配的节点
+        if not device['v4l_ready']:
+            device['v4l_ready'] = next(
+                (n['node'] for n in device.get('v4l_nodes', [])
+                 if self._video_node_matches(n['node'], n['major'], n['minor'])),
+                None)
+
+    def preview_capture(self, node):
+        """预览 UVC 采集画面（ffplay/mpv 独立进程，非阻塞，不卡主线程）。
+        点击时实时探测节点有效性；查看器 stderr 写入日志，若启动后立即失败
+        （节点失效/设备忙/无窗口后端），把真实原因弹窗显示，避免"点了没反应"。"""
+        if not os.path.exists(node):
+            QMessageBox.warning(self, t("err_title"), t("err_node_missing", node))
+            self.scan_devices()
+            return
+        try:
+            fd = os.open(node, os.O_RDONLY | os.O_NONBLOCK)
+            os.close(fd)
+        except OSError as e:
+            # 节点失效或不可打开：提示具体原因并触发重新扫描
+            QMessageBox.warning(self, t("err_title"), t("err_preview", str(e)))
+            self.scan_devices()
+            return
+        viewer = shutil.which("ffplay") or shutil.which("mpv")
+        if not viewer:
+            QMessageBox.warning(self, t("err_title"), t("err_previewer_missing"))
+            return
+        log_path = "/tmp/usb-manager-preview.log"
+        proc = None
+        try:
+            with open(log_path, "w") as log_f:
+                proc = subprocess.Popen(
+                    [viewer, "-f", "v4l2", "-i", node],
+                    stdout=log_f, stderr=subprocess.STDOUT,
+                    start_new_session=True)
+        except Exception as e:
+            QMessageBox.warning(self, t("err_title"), t("err_preview", str(e)))
+            return
+        # 短暂观察：查看器若秒退（被占用/无显示后端），把日志原因弹给用户
+        QTimer.singleShot(1500, lambda p=proc, lp=log_path: self._check_preview_proc(p, lp))
+
+    def _check_preview_proc(self, proc, log_path):
+        """预览进程启动后检查：若已退出且非正常退出，读日志弹窗显示原因。"""
+        if proc is None:
+            return
+        code = proc.poll()
+        if code is None or code == 0:
+            return
+        reason = ""
+        try:
+            with open(log_path, "r") as f:
+                reason = f.read().strip()[-500:]
+        except OSError:
+            pass
+        if not reason:
+            reason = f"exit code {code}"
+        QMessageBox.warning(self, t("err_title"), t("err_preview", reason))
 
     def is_mtp_mounted(self, device):
         """检查 MTP 设备是否已通过 gvfs 挂载（gio mount -l 匹配 mtp://[usb:bus,dev]）"""
