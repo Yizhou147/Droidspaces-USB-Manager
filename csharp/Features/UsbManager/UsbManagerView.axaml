@@ -1,0 +1,120 @@
+<UserControl x:Class="UotanToolbox.Features.UsbManager.UsbManagerView"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:usb="clr-namespace:UotanToolbox.Features.UsbManager"
+             xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+             xmlns:assets="clr-namespace:UotanToolbox.Assets;assembly=UotanToolbox"
+             d:DesignWidth="1024"
+             x:DataType="usb:UsbManagerViewModel"
+             mc:Ignorable="d">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.bold">
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+    </UserControl.Styles>
+    <ScrollViewer VerticalScrollBarVisibility="Hidden">
+        <StackPanel Margin="15">
+            <!--  标题与控制  -->
+            <suki:GlassCard Margin="0,0,0,15">
+                <StackPanel>
+                    <TextBlock Margin="5,5,0,3"
+                               FontSize="18"
+                               FontWeight="DemiBold"
+                               Text="{x:Static assets:Resources.Usb_Title}" />
+                    <TextBlock Margin="5,0,0,10"
+                               FontSize="13"
+                               Foreground="{DynamicResource SukiLowText}"
+                               Text="{x:Static assets:Resources.Usb_Description}" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button MinWidth="110"
+                                Height="36"
+                                Classes="Flat Rounded"
+                                Command="{Binding RefreshCommand}"
+                                FontWeight="DemiBold"
+                                Content="{x:Static assets:Resources.Usb_Refresh}" />
+                        <TextBlock Margin="20,0,8,0"
+                                   VerticalAlignment="Center"
+                                   Text="{x:Static assets:Resources.Usb_AutoScan}" />
+                        <ToggleSwitch IsChecked="{Binding AutoScan}" />
+                        <TextBlock Margin="20,0,8,0"
+                                   VerticalAlignment="Center"
+                                   Text="{x:Static assets:Resources.Usb_Interval}" />
+                        <NumericUpDown Width="90"
+                                       VerticalAlignment="Center"
+                                       Maximum="60"
+                                       Minimum="1"
+                                       Value="{Binding IntervalSeconds}" />
+                    </StackPanel>
+                    <TextBlock Margin="5,10,0,0"
+                               FontSize="13"
+                               Text="{Binding StatusText}" />
+                </StackPanel>
+            </suki:GlassCard>
+
+            <!--  设备列表  -->
+            <suki:GlassCard>
+                <suki:BusyArea IsBusy="{Binding IsScanning}"
+                               BusyText="{x:Static assets:Resources.Usb_Scanning}">
+                    <StackPanel>
+                        <Grid Margin="0,5,0,5" ColumnDefinitions="36*,12*,12*,12*,28*">
+                            <TextBlock Grid.Column="0" FontWeight="DemiBold" Text="{x:Static assets:Resources.Usb_ColDevice}" />
+                            <TextBlock Grid.Column="1" FontWeight="DemiBold" Text="{x:Static assets:Resources.Usb_ColSize}" />
+                            <TextBlock Grid.Column="2" FontWeight="DemiBold" Text="{x:Static assets:Resources.Usb_ColFs}" />
+                            <TextBlock Grid.Column="3" FontWeight="DemiBold" Text="{x:Static assets:Resources.Usb_ColStatus}" />
+                            <TextBlock Grid.Column="4" FontWeight="DemiBold" Text="{x:Static assets:Resources.Usb_ColAction}" />
+                        </Grid>
+                        <Separator />
+                        <ItemsControl ItemsSource="{Binding Rows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="usb:UsbRowViewModel">
+                                    <Grid MinHeight="38"
+                                          Margin="0,2,0,2"
+                                          VerticalAlignment="Center"
+                                          ColumnDefinitions="36*,12*,12*,12*,28*">
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Orientation="Horizontal">
+                                            <Border Width="20" IsVisible="{Binding IsIndented}" />
+                                            <TextBlock Classes.bold="{Binding IsBold}"
+                                                       VerticalAlignment="Center"
+                                                       Text="{Binding Name}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1"
+                                                   VerticalAlignment="Center"
+                                                   Text="{Binding Size}" />
+                                        <TextBlock Grid.Column="2"
+                                                   VerticalAlignment="Center"
+                                                   Text="{Binding Fs}" />
+                                        <TextBlock Grid.Column="3"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{Binding StatusBrush}"
+                                                   Text="{Binding Status}" />
+                                        <ItemsControl Grid.Column="4" ItemsSource="{Binding Buttons}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="usb:UsbButtonViewModel">
+                                                    <Button MinWidth="60"
+                                                           Height="28"
+                                                           Margin="2,0"
+                                                           HorizontalContentAlignment="Center"
+                                                           Classes="Flat"
+                                                           Command="{Binding Command}"
+                                                           Content="{Binding Label}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </suki:BusyArea>
+            </suki:GlassCard>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

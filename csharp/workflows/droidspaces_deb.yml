@@ -1,0 +1,80 @@
+# Droidspaces 专版云构建：仅产出 linux-arm64 deb（含 USB 管理器模块与系统级自动配置）
+name: Build Droidspaces_deb
+
+on:
+  workflow_dispatch:
+    inputs:
+      VERSION:
+        description: 'Version'
+        required: true
+      BINARY_BRANCH:
+        description: 'Binary branch'
+        required: true
+      NEED_NUPKG:
+        description: 'Use self nupkg'
+        type: boolean
+        required: true
+        default: false
+  # fork 仓库 workflow 注册表只认默认分支；workflow_dispatch 在注册前会 404。
+  # 因此附带 push 触发（仅本分支且仅当本文件变更），保证分支上可直接云编译。
+  push:
+    branches:
+      - feat/droidspaces-usb-manager
+    paths:
+      - '.github/workflows/droidspaces_deb.yml'
+
+env:
+  BUILD_VERSION: ${{ inputs.VERSION || '3.7.1-ds2' }}
+  BUILD_BINARY_BRANCH: ${{ inputs.BINARY_BRANCH || 'main' }}
+
+jobs:
+  droidspaces-deb:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Download NuGet package
+      if: ${{ inputs.NEED_NUPKG == true }}
+      run: |
+        wget https://github.com/Uotan-Dev/SukiUI-Uotan/releases/download/v6.0.0/SukiUI.6.0.0.nupkg
+        dotnet nuget add source "/home/runner/work/UotanToolboxNT"
+
+    - name: Clone Binary
+      run: git clone https://github.com/Uotan-Dev/UotanToolboxNT.Binary.git -b ${{ env.BUILD_BINARY_BRANCH }}
+
+    - name: Build
+      run: dotnet publish -r linux-arm64 --self-contained true -o ./publish-arm64
+
+    - name: Make deb-arm64 (Droidspaces)
+      run: |
+        mkdir staging_folder
+        mkdir ./staging_folder/DEBIAN
+        cp UotanToolbox/Assets/Linux/control-arm64 ./staging_folder/DEBIAN/control
+        cp UotanToolbox/Assets/Linux/postinst ./staging_folder/DEBIAN/postinst
+        chmod 755 ./staging_folder/DEBIAN/postinst
+        mkdir ./staging_folder/usr
+        mkdir ./staging_folder/usr/bin
+        cp UotanToolbox/Assets/Linux/UotanToolbox ./staging_folder/usr/bin/UotanToolbox
+        chmod +x ./staging_folder/usr/bin/UotanToolbox
+        mkdir ./staging_folder/usr/lib
+        mkdir ./staging_folder/usr/lib/UotanToolbox
+        cp -r ./publish-arm64/* ./staging_folder/usr/lib/UotanToolbox/
+        chmod -R a+rX ./staging_folder/usr/lib/UotanToolbox/
+        chmod +x ./staging_folder/usr/lib/UotanToolbox/UotanToolbox
+        cp -r ./UotanToolboxNT.Binary/Linux_AArch64/* ./staging_folder/usr/lib/UotanToolbox/
+        mkdir ./staging_folder/usr/share
+        mkdir ./staging_folder/usr/share/applications
+        cp UotanToolbox/Assets/Linux/UotanToolbox.desktop ./staging_folder/usr/share/applications/UotanToolbox.desktop
+        mkdir ./staging_folder/usr/share/pixmaps
+        cp UotanToolbox/Assets/Linux/UotanToolbox.png ./staging_folder/usr/share/pixmaps/UotanToolbox.png
+        dpkg-deb --root-owner-group --build ./staging_folder/ ./UotanToolbox_Droidspaces_arm64_${{ env.BUILD_VERSION }}.deb
+
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: Droidspaces-Package
+        path: ./UotanToolbox_Droidspaces_arm64_*.deb

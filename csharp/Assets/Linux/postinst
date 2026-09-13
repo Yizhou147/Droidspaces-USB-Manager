@@ -1,0 +1,49 @@
+#!/bin/bash
+# Droidspaces 专版 deb 包 postinst：
+# 1. USB 直通脚本加执行权限
+# 2. 授权桌面用户免密 sudo（mknod/mount/umount/chmod/mkdir/blkid/usb-passthrough.sh）
+# 3. ntfsusb 组（gid 1023）：新版 ntfs-3g (integrated FUSE) 卷固定 root:1023 770，
+#    把用户加入该组即可免密读写（与 Droidspaces-USB-Manager install.sh 同方案）
+# 4. 启用 /etc/fuse.conf 的 user_allow_other（NTFS allow_other 挂载需要）
+set -e
+
+INSTALL_DIR=/usr/lib/UotanToolbox
+SCRIPT_DIR="$INSTALL_DIR/Assets/USB"
+SUDOERS_FILE=/etc/sudoers.d/droidspaces-usb-toolbox
+
+chmod 755 "$SCRIPT_DIR"/*.sh 2>/dev/null || true
+
+# 探测桌面用户：优先 SUDO_USER/logname，回退第一个 UID>=1000 的普通用户
+TARGET_USER="${SUDO_USER:-}"
+if [ -z "$TARGET_USER" ]; then
+    TARGET_USER=$(logname 2>/dev/null || true)
+fi
+if [ -z "$TARGET_USER" ]; then
+    TARGET_USER=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1; exit}' /etc/passwd)
+fi
+
+if [ -n "$TARGET_USER" ]; then
+    # sudoers：blkid 同时授权 /usr/bin 与 /usr/sbin 两种布局
+    cat > "$SUDOERS_FILE" <<EOF
+# Droidspaces USB Manager (UotanToolbox Droidspaces edition): device-node creation and removable-media mounting
+Cmnd_Alias DROIDSPACES_USB_TOOLBOX = /usr/bin/mount *, /usr/bin/umount *, /usr/bin/mknod *, /usr/bin/chmod *, /usr/bin/mkdir -p /dev/bus/usb/*, /usr/bin/blkid *, /usr/sbin/blkid *, /usr/bin/bash $SCRIPT_DIR/usb-passthrough.sh
+$TARGET_USER ALL=(root) NOPASSWD: DROIDSPACES_USB_TOOLBOX
+EOF
+    chmod 440 "$SUDOERS_FILE"
+
+    # ntfsusb 组（gid 1023）
+    groupadd -g 1023 ntfsusb 2>/dev/null || true
+    usermod -a -G 1023 "$TARGET_USER" 2>/dev/null || true
+fi
+
+# 启用 FUSE user_allow_other
+if [ -f /etc/fuse.conf ] && ! grep -Eq '^[[:space:]]*user_allow_other([[:space:]]|$)' /etc/fuse.conf; then
+    if grep -Eq '^[[:space:]]*#[[:space:]]*user_allow_other([[:space:]]|$)' /etc/fuse.conf; then
+        sed -i 's/^[[:space:]]*#[[:space:]]*user_allow_other[[:space:]]*$/user_allow_other/' /etc/fuse.conf
+    else
+        printf '\nuser_allow_other\n' >> /etc/fuse.conf
+    fi
+fi
+
+#DEBHELPER#
+exit 0
