@@ -1565,34 +1565,42 @@ class MainWindow(QMainWindow):
 
     def cleanup_mount_points(self):
         """清理 USB-Storage 下的失效挂载与残留目录：
-        1. 空目录直接删除
-        2. 挂载点对应内核块设备已消失（/sys/class/block 中不存在，多为 mknod 残留节点）
-           → 幽灵挂载，umount 后删除
+        1. 挂载点对应内核块设备已消失 → 幽灵挂载，lazy umount 后删除
+        2. 其余空目录删除
+
+        两个必须绕开的坑：
+        - 拔盘后留下的死 FUSE 挂载点，stat() 返回 ENOTCONN，`is_dir()` 得到 False；
+          用 is_dir() 过滤会正好漏掉这种最需要清理的情况（目录只能列出 d?????????）。
+        - `mount` 的输出格式不通用（字段位置随 util-linux 版本变），改用内核的
+          /proc/self/mountinfo 解析。
         """
         base = Path(MOUNT_BASE)
         if not base.exists():
             return
-        # 解析当前挂载：挂载点 -> 设备节点
         mounts = {}
         try:
-            result = subprocess.run(["mount"], capture_output=True, text=True, timeout=10)
-            for line in result.stdout.splitlines():
-                parts = line.split()
-                if len(parts) >= 3 and parts[2].startswith(str(base)):
-                    mounts[parts[2]] = parts[0]
-        except Exception:
+            with open("/proc/self/mountinfo", "r") as f:
+                for line in f:
+                    if " - " not in line:
+                        continue
+                    head, tail = line.split(" - ", 1)
+                    fields = head.split()
+                    if len(fields) < 5:
+                        continue
+                    # 挂载点在内核里是八进制转义的（空格=\040 等）
+                    mount_point = (fields[4].replace("\\040", " ")
+                                   .replace("\\011", "\t")
+                                   .replace("\\012", "\n")
+                                   .replace("\\134", "\\"))
+                    if not mount_point.startswith(str(base)):
+                        continue
+                    src = tail.split()
+                    if len(src) >= 2:
+                        mounts[mount_point] = src[1]
+        except OSError:
             pass
         for item in base.iterdir():
-            if not item.is_dir():
-                continue
             path = str(item)
-            # 1) 空目录直接删除
-            try:
-                item.rmdir()
-                continue
-            except OSError:
-                pass
-            # 2) 挂载点：内核块设备已消失则卸载后删除
             dev = mounts.get(path)
             if dev:
                 dev_name = dev.rsplit('/', 1)[-1]
@@ -1605,9 +1613,19 @@ class MainWindow(QMainWindow):
                             ["sudo", "-n", "/usr/bin/umount", "-l", path],
                             capture_output=True, text=True, timeout=10
                         )
+                    except Exception:
+                        pass
+                    try:
                         item.rmdir()
                     except OSError:
                         pass
+                continue
+            # 不是挂载点的普通条目：只有确属空目录才删（stat 失败则保留，下次再说）
+            try:
+                if item.is_dir():
+                    item.rmdir()
+            except OSError:
+                pass
 
     def auto_mount(self, partition):
         """自动挂载分区（后台线程调用）；返回 (是否成功, 挂载点)"""
