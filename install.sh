@@ -364,13 +364,15 @@ configure_permissions() {
         log "已将用户 ${TARGET_USER} 加入 ntfsusb 组。" \
             "User ${TARGET_USER} has been added to the ntfsusb group."
 
-        # Android GKI 内核的 exFAT 驱动忽略 uid=/gid=/umask= 挂载参数，把介质
-        # 属主硬编码为 root:1077（AID_EXTERNAL_STORAGE）+ fmask/dmask=0007，
-        # 因此用户必须属于 gid 1077 才能读写 exFAT，与谁挂载、传什么参数无关。
+        # 实测（GKI 6.6 + exFAT U 盘）：内核 exFAT 驱动是遵守 uid=/gid=/umask= 的，
+        # 容器单独挂载时属主即桌面用户、权限 777，不需要任何组。
+        # 但安卓若已先挂同一卷，容器会复用安卓的 superblock 并沿用其参数（实测被改成
+        # gid=1023 + fmask/dmask=0007、属主 root:1023 770），看起来像"参数被忽略"。
+        # 因此这里把 1023/1077 都配上作双挂兜底；具体是哪个 gid 取决于安卓构建与挂载顺序。
         groupadd -g 1077 external_storage 2>/dev/null || true
         usermod -a -G 1077 "${TARGET_USER}" 2>/dev/null || true
-        log "已将用户 ${TARGET_USER} 加入 external_storage 组（exFAT 访问所需）。" \
-            "User ${TARGET_USER} has been added to the external_storage group (required for exFAT access)."
+        log "已将用户 ${TARGET_USER} 加入 external_storage 组（exFAT 双挂兜底，配合 ntfsusb 一起覆盖 1023/1077）。" \
+            "User ${TARGET_USER} has been added to the external_storage group (exFAT double-mount fallback, covers gid 1077 alongside ntfsusb's 1023)."
     fi
 
     cat > "$sudoers_tmp" <<EOF
