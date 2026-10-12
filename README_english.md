@@ -19,8 +19,11 @@ USB device management tool designed for the **Droidspaces** Linux container envi
 - Support Wayland and X11
 - Multi-partition support (each partition mounted independently)
 - Auto-clean stale mounts and leftover directories under `~/USB-Storage`
+- **Whole-disk and partition nodes are both created** and compared against the sysfs device number, so nodes left over from a replug are rebuilt automatically
+- **Late media revalidation**: storage that appears only after you confirm on the device (cameras, multi-LUN players) is picked up by opening the whole disk, which refreshes the kernel capacity (status column shows "No media (confirm on device)")
 - **Cross-distro support**: Debian/Ubuntu, Arch, Fedora
 - **Passwordless NTFS access**: automatically handles newer ntfs-3g permission issues (ntfsusb group)
+- **Passwordless exFAT access**: adds the user to gid 1077 (the Android GKI exFAT driver ignores mount options)
 
 ## Installation
 
@@ -45,7 +48,7 @@ Script features:
 - Pulls the latest sources for installation (or `--source DIR` to use a local source directory)
 - Auto-installs dependencies (PyQt5, udev, util-linux, ntfs-3g, etc.)
 - Configures passwordless mounting (with visudo validation) and a desktop shortcut
-- Adds the desktop user to the `ntfsusb` group to fix NTFS permission issues with newer ntfs-3g
+- Adds the desktop user to the `ntfsusb` (gid 1023) and `external_storage` (gid 1077) groups to fix NTFS and exFAT permission issues
 - `--user USER` to specify the desktop user
 
 > **Author credit**: `install.sh` was written by [Goldzxcbug](https://github.com/Goldzxcbug) (from `scripts/install-usb-manager.sh` in his [Droidspaces-rootfs-KDE-builder](https://github.com/Goldzxcbug/Droidspaces-rootfs-KDE-builder) repository), used when building container images. This repository maintains and extends the original script with: MTP dependencies (gvfs/kio-extras), dynamic blkid path detection, and dual-path sudoers authorization.
@@ -108,6 +111,7 @@ usb-manager
 5. **ADB Device**: Auto-detect Android phones and other ADB devices (interface `ff,42,01`)
 6. **Fastboot**: Fastboot-mode devices (interface `ff,42,03`) auto-connect; use `fastboot` directly
 7. **MTP**: Phone MTP storage auto-mounts (gvfs); click "Open" to browse phone files in a file manager
+8. **Media-less devices**: cameras and multi-LUN players first enumerate without media; the capacity shows up once the kernel refreshes it. While the status column reads "No media (confirm on device)", confirm "mass storage" on the device and the partitions appear on the next scan
 
 ### Mount Points
 
@@ -150,6 +154,18 @@ ntfs-3g builds using the **integrated FUSE** architecture (2026.x on Fedora/Arch
 
 On Debian 13 stable (traditional ntfs-3g 2022.10.3, non-integrated-FUSE), the `uid/gid` options work normally, so the mount point is owned by the user and no password is needed.
 
+### exFAT Permissions (important)
+
+The exFAT driver in the Android GKI kernel **ignores `uid=` / `gid=` / `umask=`** and pins media ownership to `root:1077` (`AID_EXTERNAL_STORAGE`) with `fmask/dmask=0007`. A normal user therefore has to be in gid 1077 to read or write exFAT, regardless of who mounts it and with which options. `install.sh` handles this automatically by creating the `external_storage` group (gid 1077) and adding the desktop user to it — the same approach as `ntfsusb` above (**log out and back in for the group to take effect**).
+
+### Sharing storage with the host Android system (important)
+
+A container-side mount claims the kernel block device, while the host `vold` needs exclusive access to run `fsck` on the next attach. When `fsck` fails the volume is marked unmountable and Android posts a notification that leads to **"Format"**. Therefore:
+
+- Ghost-mount cleanup uses a lazy umount (`umount -l`) so a dead mount never keeps the block device claimed on the container side;
+- **Do not tap Android's "Format" prompt** — dismiss it instead;
+- If the host needs the device first (e.g. exporting photos), use "Eject" in the container before working on the Android side.
+
 ## Uninstall
 
 Debian/Ubuntu (installed via deb package):
@@ -166,6 +182,8 @@ sudo rm -rf /usr/share/usb-manager /usr/bin/usb-manager \
     /etc/sudoers.d/droidspaces-usb-manager
 # Optional: remove the ntfsusb group
 sudo groupdel ntfsusb
+# Optional: remove the external_storage group
+sudo groupdel external_storage
 ```
 
 ## File Description
