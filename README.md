@@ -24,7 +24,7 @@ USB 设备管理工具，专为 **Droidspaces** Linux 容器环境设计，自�
 - **udev 属性回填**：补建节点后让 udev 重新探测文件系统，`udisks2` / Dolphin 也能识别文件系统类型与卷标
 - **跨发行版支持**：Debian/Ubuntu、Arch、Fedora
 - **免密访问 NTFS**：自动处理新版 ntfs-3g 的权限问题（ntfsusb 组）
-- **免密访问 exFAT**：自动把用户加入 gid 1077 组（Android GKI exFAT 驱动忽略挂载参数）
+- **免密访问 exFAT**：双挂时安卓会覆盖容器传的挂载参数，脚本把 gid 1023 / 1077 都配好作兜底
 
 ## 安装方法
 
@@ -159,7 +159,13 @@ Debian 13 stable 的传统 ntfs-3g（2022.10.3，非 integrated FUSE）`uid/gid`
 
 ### exFAT 权限说明（重要）
 
-Android GKI 内核的 exFAT 驱动**忽略 `uid=` / `gid=` / `umask=` 挂载参数**，把介质属主固定为 `root:1077`（`AID_EXTERNAL_STORAGE`）与 `fmask/dmask=0007`。因此普通用户必须属于 gid 1077 才能读写 exFAT，与由谁挂载、传什么参数无关。`install.sh` 已自动处理：创建 `external_storage` 组（gid 1077）并把桌面用户加入，做法与上面的 `ntfsusb` 一致（**同样需要注销重新登录生效**）。
+实测结论（2026-10-12，Android GKI 6.6 内核 + exFAT 双分区 U 盘）：**内核的 exFAT 驱动是遵守 `uid=` / `gid=` / `umask=` 的**——容器单独挂载时，挂载点与文件属主就是桌面用户、权限 `777`，天然免密，不需要任何组。
+
+但当**安卓侧已经先挂载了同一个卷**时，容器再挂会复用安卓那份 superblock，于是沿用安卓的挂载参数（本机实测被改成 `gid=1023, fmask=0007, dmask=0007`，属主变成 `root:1023 770`），我们传的 `uid/gid/umask` 看起来就像"失效"了。这不是驱动忽略参数，而是双挂的结果。
+
+`install.sh` 因此把 gid `1023`（`ntfsusb`）和 gid `1077`（`external_storage`）都配好，作为双挂情形下的兜底 —— 具体是哪个 gid 取决于安卓构建与挂载顺序，两个都覆盖最省事（**加组后需注销重新登录才生效**）。
+
+想彻底避免这种"参数被安卓覆盖"的情况，正确做法是**让安卓先让出卷**（容器侧弹出，或在安卓设置里弹出），再由容器挂载。
 
 ### 与宿主 Android 共用存储（重要）
 

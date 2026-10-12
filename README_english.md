@@ -24,7 +24,7 @@ USB device management tool designed for the **Droidspaces** Linux container envi
 - **udev property refresh**: after creating the nodes the app re-triggers udev so `udisks2` / Dolphin also sees the filesystem type and volume label
 - **Cross-distro support**: Debian/Ubuntu, Arch, Fedora
 - **Passwordless NTFS access**: automatically handles newer ntfs-3g permission issues (ntfsusb group)
-- **Passwordless exFAT access**: adds the user to gid 1077 (the Android GKI exFAT driver ignores mount options)
+- **Passwordless exFAT access**: when Android has the same volume mounted it overrides the options the container passes, so the installer also sets up gid 1023 / 1077 as a fallback
 
 ## Installation
 
@@ -159,7 +159,13 @@ On Debian 13 stable (traditional ntfs-3g 2022.10.3, non-integrated-FUSE), the `u
 
 ### exFAT Permissions (important)
 
-The exFAT driver in the Android GKI kernel **ignores `uid=` / `gid=` / `umask=`** and pins media ownership to `root:1077` (`AID_EXTERNAL_STORAGE`) with `fmask/dmask=0007`. A normal user therefore has to be in gid 1077 to read or write exFAT, regardless of who mounts it and with which options. `install.sh` handles this automatically by creating the `external_storage` group (gid 1077) and adding the desktop user to it — the same approach as `ntfsusb` above (**log out and back in for the group to take effect**).
+Measured result (2026-10-12, Android GKI 6.6 kernel + a dual-partition exFAT stick): **the kernel exFAT driver does honour `uid=` / `gid=` / `umask=`** — when the container mounts the volume on its own, the mount point and files belong to the desktop user with mode `777`, so no group is needed at all.
+
+The problem appears when **Android has already mounted the same volume**: the container's mount then reuses Android's superblock and inherits its mount options (measured here: rewritten to `gid=1023, fmask=0007, dmask=0007`, ownership `root:1023 770`), which makes our `uid/gid/umask` look as if they were ignored. That is a double-mount effect, not a driver that drops options.
+
+`install.sh` therefore sets up both gid `1023` (`ntfsusb`) and gid `1077` (`external_storage`) as a fallback for that double-mount case — which gid actually applies depends on the Android build and the mount order, so covering both is the cheap, safe option (**log out and back in for group changes to take effect**).
+
+To avoid the override entirely, let Android release the volume first (eject it on the Android side, or eject from the app before the host uses it) and only then mount in the container.
 
 ### Sharing storage with the host Android system (important)
 
