@@ -4,27 +4,38 @@ set -e
 # 获取当前用户
 CURRENT_USER=$(logname 2>/dev/null || echo $SUDO_USER)
 
-# 创建 sudoers 配置
-cat > /etc/sudoers.d/usb-storage << EOF
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mount *
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/umount *
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mkdir -p /mnt/usb-storage
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mkdir -p /home/${CURRENT_USER}/USB-Storage
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/chmod * /mnt/usb-storage
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/chmod * /home/${CURRENT_USER}/USB-Storage
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mknod -m 666 /dev/sd* b * *
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/chmod 666 /dev/sd*
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/rm /dev/sd*
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mkdir -p /dev/bus/usb/*
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/mknod -m 666 /dev/bus/usb/* c * *
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/chmod 666 /dev/bus/usb/*
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/rm /dev/bus/usb/*
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/blkid *
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/sbin/blkid *
-${CURRENT_USER} ALL=(root) NOPASSWD: /usr/bin/bash /usr/share/usb-manager/usb-passthrough.sh
+# 创建 sudoers 配置（与 install.sh 的 DROIDSPACES_USB_MANAGER 保持一致，
+# 避免两条安装路径的授权清单漂移）
+SUDOERS_TMP=$(mktemp -t usb-manager-sudoers.XXXXXXXX)
+cat > "$SUDOERS_TMP" << EOF
+# Droidspaces USB Manager: device-node creation and removable-media mounting
+# blkid 同时授权 /usr/bin 与 /usr/sbin 两种布局（不同发行版/版本位置不同）
+# rm 只放开 /dev 下几类节点：mknod 无法覆盖同名节点，拔插后设备号漂移的 stale
+# 节点必须先删除才能重建；容器内 /dev 对普通用户不可写，不授权就修不了。
+# udevadm 只放开"给 /sys/block 下的设备重发 change 事件"：容器里节点是 mknod 补的，
+# udev 数据库缺 ID_FS_*，udisks2/Dolphin 认不出文件系统类型与卷标。
+Cmnd_Alias DROIDSPACES_USB_MANAGER = /usr/bin/mount *, /usr/bin/umount *, /usr/bin/mknod *, /usr/bin/chmod *, /usr/bin/mkdir -p /dev/bus/usb/*, /usr/bin/blkid *, /usr/sbin/blkid *, /usr/bin/rm -f /dev/sd*, /usr/bin/rm -f /dev/video*, /usr/bin/rm -f /dev/bus/usb/*, /usr/bin/udevadm trigger --action=change /sys/block/*, /usr/sbin/udevadm trigger --action=change /sys/block/*, /usr/bin/bash /usr/share/usb-manager/usb-passthrough.sh
+${CURRENT_USER} ALL=(root) NOPASSWD: DROIDSPACES_USB_MANAGER
 EOF
 
-chmod 440 /etc/sudoers.d/usb-storage
+if command -v visudo >/dev/null 2>&1 && ! visudo -cf "$SUDOERS_TMP" >/dev/null 2>&1; then
+    echo "sudoers 配置校验失败，跳过写入。" >&2
+    rm -f -- "$SUDOERS_TMP"
+else
+    install -m 0440 "$SUDOERS_TMP" /etc/sudoers.d/usb-storage
+    rm -f -- "$SUDOERS_TMP"
+fi
+
+# 权限组：新版 ntfs-3g (integrated FUSE) 把 NTFS 卷固定为 root:1023 770；
+# Android GKI 的 exFAT 驱动忽略 uid/gid/umask，把介质固定为 root:1077 0770。
+# 用户必须属于对应 gid 才能读写，与谁挂载、传什么参数无关。
+if command -v groupadd >/dev/null 2>&1; then
+    groupadd -g 1023 ntfsusb 2>/dev/null || true
+    usermod -a -G 1023 "${CURRENT_USER}" 2>/dev/null || true
+    groupadd -g 1077 external_storage 2>/dev/null || true
+    usermod -a -G 1077 "${CURRENT_USER}" 2>/dev/null || true
+    echo "已把 ${CURRENT_USER} 加入 ntfsusb(1023) 与 external_storage(1077) 组；需注销重新登录生效。"
+fi
 
 # 创建挂载点
 mkdir -p /mnt/usb-storage

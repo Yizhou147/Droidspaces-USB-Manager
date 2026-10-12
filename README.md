@@ -19,8 +19,12 @@ USB 设备管理工具，专为 **Droidspaces** Linux 容器环境设计，自�
 - 支持 Wayland 和 X11
 - 多分区支持（每个分区独立挂载）
 - 自动清理 `~/USB-Storage` 下的幽灵挂载与残留目录
+- **整盘与分区节点都补齐**，并与 sysfs 设备号核对，拔插导致的失效节点自动重建
+- **晚到介质重新校验**：相机等多 LUN 设备在机身上确认后才出现的存储，打开整盘即可刷新容量并识别（状态列显示"无介质（请在设备上确认）"）
+- **udev 属性回填**：补建节点后让 udev 重新探测文件系统，`udisks2` / Dolphin 也能识别文件系统类型与卷标
 - **跨发行版支持**：Debian/Ubuntu、Arch、Fedora
 - **免密访问 NTFS**：自动处理新版 ntfs-3g 的权限问题（ntfsusb 组）
+- **免密访问 exFAT**：自动把用户加入 gid 1077 组（Android GKI exFAT 驱动忽略挂载参数）
 
 ## 安装方法
 
@@ -45,28 +49,30 @@ sudo bash /tmp/usb-manager-install.sh
 - 自动拉取最新源码安装（或 `--source DIR` 指定本地源码目录）
 - 自动安装依赖（PyQt5、udev、util-linux、ntfs-3g 等）
 - 配置免密码挂载（含 visudo 校验）与桌面快捷方式
-- 将桌面用户加入 `ntfsusb` 组，解决新版 ntfs-3g 挂载 NTFS 卷的权限问题
+- 将桌面用户加入 `ntfsusb`（gid 1023）与 `external_storage`（gid 1077）组，解决 NTFS 与 exFAT 卷的权限问题
 - `--user USER` 可指定桌面用户
 
 > **原作者致谢**：`install.sh` 由 [Goldzxcbug](https://github.com/Goldzxcbug) 编写（出自其 [Droidspaces-rootfs-KDE-builder](https://github.com/Goldzxcbug/Droidspaces-rootfs-KDE-builder) 仓库的 `scripts/install-usb-manager.sh`），供构建容器镜像时安装 USB Manager。本仓库在原脚本基础上升级维护，新增：MTP 依赖（gvfs/kio-extras）、blkid 路径动态检测、sudoers 双路径授权等。
 
 ### 方法 2：使用安装包（Debian/Ubuntu 用 deb、Fedora 用 rpm、Arch 用 Arch 包）
 
-从 [Releases](https://github.com/Yizhou147/Droidspaces-USB-Manager/releases) 下载最新版（v1.3，含 deb / rpm / Arch 三种包）：
+从 [Releases](https://github.com/Yizhou147/Droidspaces-USB-Manager/releases) 下载三种包。**包文件名固定、不随版本变化**，升级由包内版本号决定，所以下面的命令长期有效：
 
 ```bash
-sudo dpkg -i usb-manager_1.3-1_all.deb
+sudo dpkg -i Droidspaces_USB_Manager_all.deb
 sudo apt-get install -f  # 自动补齐依赖
 ```
 
-Fedora：`sudo dnf install ./usb-manager-1.3-1.fc44.noarch.rpm`
+Fedora：`sudo dnf install ./Droidspaces_USB_Manager_noarch.rpm`
 Arch：
 
 ```bash
 # 本地构建的包无 GPG 签名，需临时忽略签名验证（或自行签名）
 printf '[options]\nSigLevel = Never\n' > /tmp/pacman-nosig.conf
-sudo pacman -U --config /tmp/pacman-nosig.conf ./usb-manager-1.3-1-any.pkg.tar.zst
+sudo pacman -U --config /tmp/pacman-nosig.conf ./Droidspaces_USB_Manager_any.pkg.tar.zst
 ```
+
+> **版本命名规范**：tag 与包内版本号一律三段 `X.Y.Z`（大版本 `v1.5.0`，补丁版 `v1.5.1`），三种包的文件名不带版本号、永久固定。v1.0–v1.4 的历史资产名沿用了当时的写法（有的还写着 `1.0.0`），与新规范不一致，属遗留，不影响下载已发布的版本。
 
 ### 方法 3：手动安装（Debian/Ubuntu）
 
@@ -108,6 +114,7 @@ usb-manager
 5. **ADB 设备**：自动检测 Android 手机等 ADB 设备（接口 `ff,42,01`）
 6. **Fastboot**：Fastboot 模式设备（接口 `ff,42,03`）自动连接，可直接使用 `fastboot` 命令
 7. **MTP**：手机 MTP 存储自动挂载（gvfs），点击"打开"通过文件管理器浏览手机文件
+8. **无介质设备**：相机、多 LUN 存储先以"无介质"枚举，容量在内核刷新后才显示；状态列为"无介质（请在设备上确认）"时，在设备上确认"大容量存储"即可，应用每轮扫描会自动重新校验并出现分区
 
 ### 挂载点
 
@@ -150,6 +157,18 @@ ntfs-3g 的 **integrated FUSE** 架构版本（Fedora/Arch 的 2026.x、Ubuntu 2
 
 Debian 13 stable 的传统 ntfs-3g（2022.10.3，非 integrated FUSE）`uid/gid` 选项正常生效，挂载后属主即为用户，天然免密。
 
+### exFAT 权限说明（重要）
+
+Android GKI 内核的 exFAT 驱动**忽略 `uid=` / `gid=` / `umask=` 挂载参数**，把介质属主固定为 `root:1077`（`AID_EXTERNAL_STORAGE`）与 `fmask/dmask=0007`。因此普通用户必须属于 gid 1077 才能读写 exFAT，与由谁挂载、传什么参数无关。`install.sh` 已自动处理：创建 `external_storage` 组（gid 1077）并把桌面用户加入，做法与上面的 `ntfsusb` 一致（**同样需要注销重新登录生效**）。
+
+### 与宿主 Android 共用存储（重要）
+
+容器侧的挂载会占用内核块设备，而宿主 `vold` 在下次插入时要求独占才能跑 `fsck`；`fsck` 失败会把该卷标记为不可挂载，Android 随即弹出指向**"格式化"**的通知。因此：
+
+- 幽灵挂载清理使用 lazy umount（`umount -l`），确保失效挂载不会把块设备一直占用在容器侧；
+- **不要点 Android 的"格式化"提示**，若该通知出现，划掉即可；
+- 需要宿主先使用（例如传照片）时，先在容器里"弹出"再在 Android 侧操作。
+
 ## 卸载方法
 
 Debian/Ubuntu（deb 包安装）：
@@ -166,6 +185,8 @@ sudo rm -rf /usr/share/usb-manager /usr/bin/usb-manager \
     /etc/sudoers.d/droidspaces-usb-manager
 # 可选：移除 ntfsusb 组
 sudo groupdel ntfsusb
+# 可选：移除 external_storage 组
+sudo groupdel external_storage
 ```
 
 ## 文件说明

@@ -363,12 +363,24 @@ configure_permissions() {
         usermod -a -G 1023 "${TARGET_USER}" 2>/dev/null || true
         log "已将用户 ${TARGET_USER} 加入 ntfsusb 组。" \
             "User ${TARGET_USER} has been added to the ntfsusb group."
+
+        # Android GKI 内核的 exFAT 驱动忽略 uid=/gid=/umask= 挂载参数，把介质
+        # 属主硬编码为 root:1077（AID_EXTERNAL_STORAGE）+ fmask/dmask=0007，
+        # 因此用户必须属于 gid 1077 才能读写 exFAT，与谁挂载、传什么参数无关。
+        groupadd -g 1077 external_storage 2>/dev/null || true
+        usermod -a -G 1077 "${TARGET_USER}" 2>/dev/null || true
+        log "已将用户 ${TARGET_USER} 加入 external_storage 组（exFAT 访问所需）。" \
+            "User ${TARGET_USER} has been added to the external_storage group (required for exFAT access)."
     fi
 
     cat > "$sudoers_tmp" <<EOF
 # Droidspaces USB Manager: device-node creation and removable-media mounting
 # blkid 同时授权 /usr/bin 与 /usr/sbin 两种布局（不同发行版/版本位置不同）
-Cmnd_Alias DROIDSPACES_USB_MANAGER = /usr/bin/mount *, /usr/bin/umount *, /usr/bin/mknod *, /usr/bin/chmod *, /usr/bin/mkdir -p /dev/bus/usb/*, /usr/bin/blkid *, /usr/sbin/blkid *, /usr/bin/bash ${INSTALL_DIR}/usb-passthrough.sh
+# rm 只放开 /dev 下两类节点：mknod 无法覆盖同名节点，拔插后设备号漂移的 stale
+# 节点必须先删除才能重建；容器内 /dev 对普通用户不可写，不授权就修不了。
+# udevadm 只放开"给 /sys/block 下的设备重发 change 事件"：容器里节点是 mknod 补的，
+# udev 数据库缺 ID_FS_*，udisks2/Dolphin 认不出文件系统类型与卷标。
+Cmnd_Alias DROIDSPACES_USB_MANAGER = /usr/bin/mount *, /usr/bin/umount *, /usr/bin/mknod *, /usr/bin/chmod *, /usr/bin/mkdir -p /dev/bus/usb/*, /usr/bin/blkid *, /usr/sbin/blkid *, /usr/bin/rm -f /dev/sd*, /usr/bin/rm -f /dev/video*, /usr/bin/rm -f /dev/bus/usb/*, /usr/bin/udevadm trigger --action=change /sys/block/*, /usr/sbin/udevadm trigger --action=change /sys/block/*, /usr/bin/bash ${INSTALL_DIR}/usb-passthrough.sh
 ${TARGET_USER} ALL=(root) NOPASSWD: DROIDSPACES_USB_MANAGER
 EOF
 
@@ -410,8 +422,8 @@ main() {
 
     log "安装完成。可从应用菜单或桌面快捷方式启动 USB Manager，也可运行 usb-manager。" \
         "Installation complete. Start USB Manager from the application menu or desktop shortcut, or run usb-manager."
-    log "已加入 ntfsusb 组，请注销重新登录（或重启容器）后生效。" \
-        "Added to the ntfsusb group; log out and back in (or restart the container) for it to take effect."
+    log "已加入 ntfsusb 与 external_storage 组，请注销重新登录（或重启容器）后生效。" \
+        "Added to the ntfsusb and external_storage groups; log out and back in (or restart the container) for it to take effect."
     log "导入 Droidspaces 容器时必须开启硬件访问。" \
         "Hardware access must be enabled when importing the Droidspaces container."
 }

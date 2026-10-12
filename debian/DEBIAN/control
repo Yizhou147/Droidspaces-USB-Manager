@@ -1,5 +1,5 @@
 Package: usb-manager
-Version: 1.4-1
+Version: 0.0.0-1
 Section: utils
 Priority: optional
 Architecture: all

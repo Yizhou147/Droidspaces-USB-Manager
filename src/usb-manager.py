@@ -6,6 +6,7 @@ Droidspaces USB Manager
 
 import sys
 import os
+import time
 import shutil
 import subprocess
 import fcntl
@@ -57,6 +58,7 @@ TRANSLATIONS = {
         "disconnected": "未连接",
         "mounted": "已挂载",
         "unmounted": "未挂载",
+        "no_media": "无介质（请在设备上确认）",
         "unknown": "未知",
         "open_dir": "打开",
         "eject": "弹出",
@@ -149,6 +151,7 @@ TRANSLATIONS = {
         "disconnected": "Disconnected",
         "mounted": "Mounted",
         "unmounted": "Unmounted",
+        "no_media": "No media (confirm on device)",
         "unknown": "Unknown",
         "open_dir": "Open",
         "eject": "Eject",
@@ -239,6 +242,58 @@ def _find_blkid():
 
 # blkid 绝对路径（安装脚本需在 sudoers 中授权对应路径）
 BLKID_CMD = _find_blkid()
+
+
+def _find_udevadm():
+    """查找 udevadm 可执行文件路径（发行版间布局不同）"""
+    for p in ("/usr/bin/udevadm", "/usr/sbin/udevadm", "/lib/udev/udevadm"):
+        if os.path.exists(p):
+            return p
+    return shutil.which("udevadm") or ""
+
+
+UDEVADM_CMD = _find_udevadm()
+
+
+def udev_has_fs_info(syspath):
+    """udev 数据库里是否已有该设备的 ID_FS_TYPE。
+    容器内的 /dev 节点是我们自己 mknod 出来的，udev 在处理原始 add 事件时节点还不
+    存在，blkid 探测失败 → ID_FS_* 全空 → udisks2/Dolphin 认不出文件系统类型与卷标。"""
+    if not UDEVADM_CMD:
+        return True
+    try:
+        result = subprocess.run(
+            [UDEVADM_CMD, "info", "--query=property", "--path", syspath],
+            capture_output=True, text=True, timeout=10
+        )
+    except Exception:
+        return True
+    if result.returncode != 0:
+        return True
+    return "ID_FS_TYPE=" in result.stdout
+
+
+# 每个 syspath 的最近一次触发时间：重扫周期只有 3s，不限流会反复灌 udev
+_udev_refreshed_at = {}
+
+
+def refresh_udev_fs_info(syspath, throttle=30.0):
+    """向 udev 重新发一次 change 事件，让它带着已存在的节点重新探测文件系统。
+    只读探测，不写任何设备数据。"""
+    if not UDEVADM_CMD:
+        return False
+    now = time.monotonic()
+    if now - _udev_refreshed_at.get(syspath, 0.0) < throttle:
+        return False
+    _udev_refreshed_at[syspath] = now
+    try:
+        subprocess.run(
+            ["sudo", "-n", UDEVADM_CMD, "trigger", "--action=change", syspath],
+            capture_output=True, timeout=10
+        )
+    except Exception:
+        return False
+    return True
 
 
 def detect_system_language():
@@ -542,6 +597,56 @@ def _v4l_device_caps(node):
         os.close(fd)
 
 
+def node_matches(node, major, minor):
+    """节点存在且 (major,minor) 与 sysfs 一致才算有效。
+    stale 节点（文件在但设备号已因拔插漂移）open 会 ENXIO，
+    仅 os.path.exists 无法识别，必须比对设备号。"""
+    try:
+        want = os.makedev(int(major), int(minor))
+    except (TypeError, ValueError):
+        return False
+    try:
+        return os.stat(node).st_rdev == want
+    except OSError:
+        return False
+
+
+def remove_node(node):
+    """删除设备节点：先试 sudo rm（可能不在 sudoers），失败退回普通 unlink。"""
+    try:
+        subprocess.run(["sudo", "-n", "/usr/bin/rm", "-f", node],
+                       capture_output=True, timeout=10)
+    except Exception:
+        pass
+    if os.path.lexists(node):
+        try:
+            os.unlink(node)
+        except OSError:
+            pass
+
+
+def ensure_device_node(node, major, minor, char=False):
+    """补齐/重建设备节点，返回最终是否有效。
+    容器内 devtmpfs 只包含容器启动时已存在的节点，之后出现的块设备用动态 dev_t，
+    udevd 也不建节点，所以 /dev/sdX 可能根本不存在；已存在但设备号不符的 stale
+    节点必须先删除，mknod 无法覆盖同名节点。"""
+    if node_matches(node, major, minor):
+        return True
+    if os.path.lexists(node):
+        remove_node(node)
+    try:
+        subprocess.run(
+            ["sudo", "-n", "/usr/bin/mknod", "-m", "666", node,
+             "c" if char else "b", str(major), str(minor)],
+            capture_output=True, timeout=10
+        )
+        subprocess.run(["sudo", "-n", "/usr/bin/chmod", "666", node],
+                       capture_output=True, timeout=10)
+    except Exception:
+        return False
+    return node_matches(node, major, minor)
+
+
 class ScanWorker(QThread):
     """后台扫描 USB 设备的线程"""
     finished = pyqtSignal(list, list)
@@ -553,20 +658,21 @@ class ScanWorker(QThread):
 
     def create_device_node(self, node, major, minor):
         """创建设备节点"""
+        return ensure_device_node(node, major, minor)
+
+    def revalidate_media(self, block_dev):
+        """无介质（size 0）的 USB 盘：打开整盘节点一次，内核只在设备被 open 时
+        走 sd_check_events() → revalidate_disk()，相机/多 LUN 这类"机身确认后
+        才挂上真实存储"的设备容量靠这一步才会刷新；没人 open 就永远是 0，
+        分区不出现、blkid 也探不到文件系统。只读打开，不写任何数据。"""
+        node = f"/dev/{block_dev.name}"
         if not os.path.exists(node):
-            try:
-                subprocess.run(
-                    ["sudo", "-n", "/usr/bin/mknod", "-m", "666", node, "b", major, minor],
-                    capture_output=True, timeout=10
-                )
-                subprocess.run(
-                    ["sudo", "-n", "/usr/bin/chmod", "666", node],
-                    capture_output=True, timeout=10
-                )
-                return os.path.exists(node)
-            except Exception:
-                return False
-        return True
+            return
+        try:
+            fd = os.open(node, os.O_RDONLY | os.O_NONBLOCK)
+            os.close(fd)
+        except OSError:
+            return
 
     def scan_adb_devices(self):
         """扫描非存储 USB 设备（排除 USB 存储设备），并按 class 码分类为
@@ -688,6 +794,14 @@ class ScanWorker(QThread):
                     block_name = block_dev.name
                     node_path = f"/dev/{block_name}"
 
+                    # 整盘节点也要建：open 整盘是刷新容量的唯一途径（见 revalidate_media）
+                    self.create_device_node(node_path, major, minor)
+                    if size_sectors == 0:
+                        self.revalidate_media(block_dev)
+                        size_sectors = int((block_dev / "size").read_text().strip()) \
+                            if size_file.exists() else 0
+                        size_gb = size_sectors * 512 // 1073741824
+
                     device_info = {
                         "name": block_name,
                         "node": node_path,
@@ -696,6 +810,7 @@ class ScanWorker(QThread):
                         "vendor": vendor,
                         "model": model,
                         "size_gb": size_gb,
+                        "media_present": size_sectors > 0,
                         "partitions": []
                     }
 
@@ -720,6 +835,12 @@ class ScanWorker(QThread):
 
                         fs_type = self.get_fs_type(part_node)
                         mounted_at = self.get_mount_point(part_node)
+
+                        # 节点是我们补建的，udev 数据库里还没有 ID_FS_* → 让 udev 重新探测一次，
+                        # 这样 udisks2 / Dolphin 也能报出文件系统类型与卷标
+                        udev_path = f"/sys/block/{block_name}/{part_name}"
+                        if fs_type and not udev_has_fs_info(udev_path):
+                            refresh_udev_fs_info(udev_path)
 
                         device_info["partitions"].append({
                             "name": part_name,
@@ -1034,7 +1155,12 @@ class MainWindow(QMainWindow):
             dev_item.setText(0, f"{device['model']} ({device['vendor']})")
             dev_item.setText(1, f"{device['size_gb']} GB")
             dev_item.setText(2, "")
-            dev_item.setText(3, t("connected"))
+            if device.get('media_present', True):
+                dev_item.setText(3, t("connected"))
+            else:
+                # 相机/多 LUN 设备先以无介质枚举，机身确认后才挂上真实存储
+                dev_item.setText(3, t("no_media"))
+                dev_item.setForeground(3, QColor("#FF9800"))
             dev_item.setIcon(0, self.style().standardIcon(QStyle.SP_ComputerIcon))
             dev_item.setExpanded(True)
 
@@ -1200,20 +1326,7 @@ class MainWindow(QMainWindow):
 
     def create_device_node(self, node, major, minor):
         """创建设备节点"""
-        if not os.path.exists(node):
-            try:
-                subprocess.run(
-                    ["sudo", "-n", "/usr/bin/mknod", "-m", "666", node, "b", major, minor],
-                    capture_output=True, timeout=10
-                )
-                subprocess.run(
-                    ["sudo", "-n", "/usr/bin/chmod", "666", node],
-                    capture_output=True, timeout=10
-                )
-                return os.path.exists(node)
-            except Exception:
-                return False
-        return True
+        return ensure_device_node(node, major, minor)
 
     def create_adb_node(self, device):
         """创建 ADB 设备节点"""
@@ -1276,29 +1389,6 @@ class MainWindow(QMainWindow):
             print(f"usb-passthrough.sh error: {e}")
         return False
 
-    def _video_node_matches(self, node, major, minor):
-        """节点存在且 (major,minor) 与 sysfs 一致才算有效。
-        stale 节点（文件在但设备号已因拔插漂移）open 会 ENXIO/黑屏，
-        仅 os.path.exists 无法识别，必须比对设备号。"""
-        try:
-            st = os.stat(node)
-        except OSError:
-            return False
-        return st.st_rdev == os.makedev(int(major), int(minor))
-
-    def _unlink_node(self, node):
-        """删除设备节点：先试 sudo rm（可能不在 sudoers），失败退回普通 unlink。"""
-        try:
-            subprocess.run(["sudo", "-n", "/usr/bin/rm", "-f", node],
-                           capture_output=True, timeout=10)
-        except Exception:
-            pass
-        if os.path.lexists(node):
-            try:
-                os.unlink(node)
-            except OSError:
-                pass
-
     def ensure_video_nodes(self, device):
         """后台线程：校正 UVC 采集卡的 /dev/video* 节点。
         devtmpfs 在部分容器不会自动建节点、拔插后 video 号又会漂移，
@@ -1306,33 +1396,17 @@ class MainWindow(QMainWindow):
         缺失→创建；存在但号不符→删除重建。只有真正匹配的节点才标记就绪，
         避免把失效节点交给预览按钮。"""
         for n in device.get('v4l_nodes', []):
-            node, major, minor = n['node'], n['major'], n['minor']
-            if self._video_node_matches(node, major, minor):
-                continue
-            if os.path.lexists(node):
-                self._unlink_node(node)
-            try:
-                subprocess.run(
-                    ["sudo", "-n", "/usr/bin/mknod", "-m", "666", node,
-                     "c", major, minor],
-                    capture_output=True, timeout=10
-                )
-                subprocess.run(
-                    ["sudo", "-n", "/usr/bin/chmod", "666", node],
-                    capture_output=True, timeout=10
-                )
-            except Exception:
-                pass
+            ensure_device_node(n['node'], n['major'], n['minor'], char=True)
         device['v4l_ready'] = next(
             (n['node'] for n in device.get('v4l_nodes', [])
-             if self._video_node_matches(n['node'], n['major'], n['minor'])
+             if node_matches(n['node'], n['major'], n['minor'])
              and (_v4l_device_caps(n['node']) or 0) & _V4L2_CAP_VIDEO_CAPTURE),
             None)
         # 若能力探测全部失败（如无权限），退回任一个 rdev 匹配的节点
         if not device['v4l_ready']:
             device['v4l_ready'] = next(
                 (n['node'] for n in device.get('v4l_nodes', [])
-                 if self._video_node_matches(n['node'], n['major'], n['minor'])),
+                 if node_matches(n['node'], n['major'], n['minor'])),
                 None)
 
     def preview_capture(self, node):
@@ -1524,8 +1598,11 @@ class MainWindow(QMainWindow):
                 dev_name = dev.rsplit('/', 1)[-1]
                 if not os.path.exists(f"/sys/class/block/{dev_name}"):
                     try:
+                        # lazy：残留挂载若不释放，内核会一直占用该块设备，
+                        # 宿主 vold 下次插入时 fsck 要求独占 → 失败并把卷标为
+                        # unmountable，Android 随即弹出指向"格式化"的通知
                         subprocess.run(
-                            ["sudo", "-n", "/usr/bin/umount", path],
+                            ["sudo", "-n", "/usr/bin/umount", "-l", path],
                             capture_output=True, text=True, timeout=10
                         )
                         item.rmdir()

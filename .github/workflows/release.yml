@@ -4,13 +4,29 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（如 1.3）'
+        description: '版本号（三段 X.Y.Z，与 tag v<version> 一致，如 1.5.0）'
         required: true
-        default: '1.3'
+        default: '1.5.0'
+
+env:
+  VERSION: ${{ inputs.version }}
 
 jobs:
+  check-version:
+    name: 校验版本号
+    runs-on: ubuntu-latest
+    steps:
+      - name: 必须是 X.Y.Z 三段
+        run: |
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "版本号必须是 X.Y.Z 三段格式" >&2
+            exit 1
+          fi
+          echo "版本号合法：$VERSION"
+
   build-deb:
     name: Debian/Ubuntu (.deb)
+    needs: check-version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,15 +38,16 @@ jobs:
           cp -r icons/. debian/usr/share/usb-manager/icons/
       - name: 更新版本号并构建 deb
         run: |
-          sed -i "s/^Version: .*/Version: ${{ inputs.version }}-1/" debian/DEBIAN/control
-          dpkg-deb --build debian "usb-manager_${{ inputs.version }}-1_all.deb"
+          sed -i "s|^Version: .*|Version: ${VERSION}-1|" debian/DEBIAN/control
+          dpkg-deb --build debian Droidspaces_USB_Manager_all.deb
       - uses: actions/upload-artifact@v4
         with:
           name: deb
-          path: usb-manager_*.deb
+          path: Droidspaces_USB_Manager_all.deb
 
   build-rpm:
     name: Fedora (.rpm)
+    needs: check-version
     runs-on: ubuntu-latest
     container: fedora:latest
     steps:
@@ -39,23 +56,24 @@ jobs:
         run: dnf install -y --setopt=retries=5 --setopt=timeout=30 rpm-build tar
       - name: 打源码包并构建 rpm
         run: |
-          mkdir -p "usb-manager-${{ inputs.version }}"
-          cp -r src icons desktop LICENSE README.md "usb-manager-${{ inputs.version }}/"
-          rm -rf "usb-manager-${{ inputs.version }}/src/__pycache__"
-          tar czf "usb-manager-${{ inputs.version }}.tar.gz" "usb-manager-${{ inputs.version }}"
-          sed -i "s/^Version:.*/Version: ${{ inputs.version }}/" usb-manager.spec
+          mkdir -p "usb-manager-${VERSION}"
+          cp -r src icons desktop LICENSE README.md "usb-manager-${VERSION}/"
+          rm -rf "usb-manager-${VERSION}/src/__pycache__"
+          tar czf "usb-manager-${VERSION}.tar.gz" "usb-manager-${VERSION}"
+          sed -i "s|^Version:.*|Version:        ${VERSION}|" usb-manager.spec
           mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          cp "usb-manager-${{ inputs.version }}.tar.gz" rpmbuild/SOURCES/
+          cp "usb-manager-${VERSION}.tar.gz" rpmbuild/SOURCES/
           cp usb-manager.spec rpmbuild/SPECS/
           rpmbuild -bb --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/usb-manager.spec
-          cp rpmbuild/RPMS/noarch/*.rpm .
+          cp rpmbuild/RPMS/noarch/*.rpm Droidspaces_USB_Manager_noarch.rpm
       - uses: actions/upload-artifact@v4
         with:
           name: rpm
-          path: ./*.rpm
+          path: Droidspaces_USB_Manager_noarch.rpm
 
   build-arch:
     name: Arch (.pkg.tar.zst)
+    needs: check-version
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
@@ -68,15 +86,16 @@ jobs:
           useradd -m builder
       - name: 打源码包并构建 Arch 包
         run: |
-          mkdir -p "usb-manager-${{ inputs.version }}"
-          cp -r src icons desktop LICENSE README.md "usb-manager-${{ inputs.version }}/"
-          rm -rf "usb-manager-${{ inputs.version }}/src/__pycache__"
-          tar czf "usb-manager-${{ inputs.version }}.tar.gz" "usb-manager-${{ inputs.version }}"
-          sed -i "s/^pkgver=.*/pkgver=${{ inputs.version }}/" PKGBUILD
+          mkdir -p "usb-manager-${VERSION}"
+          cp -r src icons desktop LICENSE README.md "usb-manager-${VERSION}/"
+          rm -rf "usb-manager-${VERSION}/src/__pycache__"
+          tar czf "usb-manager-${VERSION}.tar.gz" "usb-manager-${VERSION}"
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
           chown -R builder:builder .
           su builder -c "cd $PWD && makepkg -f"
-          ls -la ./*.pkg.tar.zst
+          mv ./*.pkg.tar.zst Droidspaces_USB_Manager_any.pkg.tar.zst
+          ls -la Droidspaces_USB_Manager_any.pkg.tar.zst
       - uses: actions/upload-artifact@v4
         with:
           name: arch
-          path: ./*.pkg.tar.zst
+          path: Droidspaces_USB_Manager_any.pkg.tar.zst

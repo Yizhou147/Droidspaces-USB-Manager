@@ -1,5 +1,5 @@
 Name:           usb-manager
-Version:        1.3
+Version:        0.0.0
 Release:        1%{?dist}
 Summary:        Droidspaces USB Device Manager - detect and manage USB storage and ADB devices
 

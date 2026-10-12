@@ -1,6 +1,6 @@
 # Maintainer: Droidspaces <droidspaces@example.com>
 pkgname=usb-manager
-pkgver=1.3
+pkgver=0.0.0
 pkgrel=1
 pkgdesc="Droidspaces USB 设备管理器：自动检测、挂载 USB 存储和 ADB/Fastboot 设备，支持 MTP 挂载"
 arch=('any')
