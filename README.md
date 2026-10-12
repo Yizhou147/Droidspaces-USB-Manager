@@ -56,21 +56,23 @@ sudo bash /tmp/usb-manager-install.sh
 
 ### 方法 2：使用安装包（Debian/Ubuntu 用 deb、Fedora 用 rpm、Arch 用 Arch 包）
 
-从 [Releases](https://github.com/Yizhou147/Droidspaces-USB-Manager/releases) 下载最新版（v1.3，含 deb / rpm / Arch 三种包）：
+从 [Releases](https://github.com/Yizhou147/Droidspaces-USB-Manager/releases) 下载三种包。**包文件名固定、不随版本变化**，升级由包内版本号决定，所以下面的命令长期有效：
 
 ```bash
-sudo dpkg -i usb-manager_1.3-1_all.deb
+sudo dpkg -i Droidspaces_USB_Manager_all.deb
 sudo apt-get install -f  # 自动补齐依赖
 ```
 
-Fedora：`sudo dnf install ./usb-manager-1.3-1.fc44.noarch.rpm`
+Fedora：`sudo dnf install ./Droidspaces_USB_Manager_noarch.rpm`
 Arch：
 
 ```bash
 # 本地构建的包无 GPG 签名，需临时忽略签名验证（或自行签名）
 printf '[options]\nSigLevel = Never\n' > /tmp/pacman-nosig.conf
-sudo pacman -U --config /tmp/pacman-nosig.conf ./usb-manager-1.3-1-any.pkg.tar.zst
+sudo pacman -U --config /tmp/pacman-nosig.conf ./Droidspaces_USB_Manager_any.pkg.tar.zst
 ```
+
+> **版本命名规范**：tag 与包内版本号一律三段 `X.Y.Z`（大版本 `v1.5.0`，补丁版 `v1.5.1`），三种包的文件名不带版本号、永久固定。v1.0–v1.4 的历史资产名沿用了当时的写法（有的还写着 `1.0.0`），与新规范不一致，属遗留，不影响下载已发布的版本。
 
 ### 方法 3：手动安装（Debian/Ubuntu）
 

@@ -56,21 +56,23 @@ Script features:
 
 ### Method 2: Packages (deb for Debian/Ubuntu, rpm for Fedora, Arch package for Arch)
 
-Download the latest release (v1.3, includes deb / rpm / Arch packages) from [Releases](https://github.com/Yizhou147/Droidspaces-USB-Manager/releases):
+Download the three packages from [Releases](https://github.com/Yizhou147/Droidspaces-USB-Manager/releases). **Package file names are fixed and never change between releases** — upgrades are decided by the version inside each package, so the commands below stay valid forever:
 
 ```bash
-sudo dpkg -i usb-manager_1.3-1_all.deb
+sudo dpkg -i Droidspaces_USB_Manager_all.deb
 sudo apt-get install -f  # Auto-install dependencies
 ```
 
-Fedora: `sudo dnf install ./usb-manager-1.3-1.fc44.noarch.rpm`
+Fedora: `sudo dnf install ./Droidspaces_USB_Manager_noarch.rpm`
 Arch:
 
 ```bash
 # Locally built package has no GPG signature; temporarily disable signature checks (or sign it yourself)
 printf '[options]\nSigLevel = Never\n' > /tmp/pacman-nosig.conf
-sudo pacman -U --config /tmp/pacman-nosig.conf ./usb-manager-1.3-1-any.pkg.tar.zst
+sudo pacman -U --config /tmp/pacman-nosig.conf ./Droidspaces_USB_Manager_any.pkg.tar.zst
 ```
+
+> **Versioning scheme**: tags and in-package versions are always three-part `X.Y.Z` (feature release `v1.5.0`, patch `v1.5.1`), while the three file names carry no version and stay fixed. Assets from v1.0–v1.4 kept the naming of their time (one even says `1.0.0`) and do not match the new scheme; that is legacy and does not affect downloading already published versions.
 
 ### Method 3: Manual Installation (Debian/Ubuntu)
 
