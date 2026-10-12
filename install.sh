@@ -376,7 +376,9 @@ configure_permissions() {
     cat > "$sudoers_tmp" <<EOF
 # Droidspaces USB Manager: device-node creation and removable-media mounting
 # blkid 同时授权 /usr/bin 与 /usr/sbin 两种布局（不同发行版/版本位置不同）
-Cmnd_Alias DROIDSPACES_USB_MANAGER = /usr/bin/mount *, /usr/bin/umount *, /usr/bin/mknod *, /usr/bin/chmod *, /usr/bin/mkdir -p /dev/bus/usb/*, /usr/bin/blkid *, /usr/sbin/blkid *, /usr/bin/bash ${INSTALL_DIR}/usb-passthrough.sh
+# rm 只放开 /dev 下两类节点：mknod 无法覆盖同名节点，拔插后设备号漂移的 stale
+# 节点必须先删除才能重建；容器内 /dev 对普通用户不可写，不授权就修不了。
+Cmnd_Alias DROIDSPACES_USB_MANAGER = /usr/bin/mount *, /usr/bin/umount *, /usr/bin/mknod *, /usr/bin/chmod *, /usr/bin/mkdir -p /dev/bus/usb/*, /usr/bin/blkid *, /usr/sbin/blkid *, /usr/bin/rm -f /dev/sd*, /usr/bin/rm -f /dev/video*, /usr/bin/rm -f /dev/bus/usb/*, /usr/bin/bash ${INSTALL_DIR}/usb-passthrough.sh
 ${TARGET_USER} ALL=(root) NOPASSWD: DROIDSPACES_USB_MANAGER
 EOF
 
