@@ -21,6 +21,7 @@ USB device management tool designed for the **Droidspaces** Linux container envi
 - Auto-clean stale mounts and leftover directories under `~/USB-Storage`
 - **Whole-disk and partition nodes are both created** and compared against the sysfs device number, so nodes left over from a replug are rebuilt automatically
 - **Late media revalidation**: storage that appears only after you confirm on the device (cameras, multi-LUN players) is picked up by opening the whole disk, which refreshes the kernel capacity (status column shows "No media (confirm on device)")
+- **udev property refresh**: after creating the nodes the app re-triggers udev so `udisks2` / Dolphin also sees the filesystem type and volume label
 - **Cross-distro support**: Debian/Ubuntu, Arch, Fedora
 - **Passwordless NTFS access**: automatically handles newer ntfs-3g permission issues (ntfsusb group)
 - **Passwordless exFAT access**: adds the user to gid 1077 (the Android GKI exFAT driver ignores mount options)

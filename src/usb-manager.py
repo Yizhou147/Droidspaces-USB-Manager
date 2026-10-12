@@ -6,6 +6,7 @@ Droidspaces USB Manager
 
 import sys
 import os
+import time
 import shutil
 import subprocess
 import fcntl
@@ -241,6 +242,58 @@ def _find_blkid():
 
 # blkid 绝对路径（安装脚本需在 sudoers 中授权对应路径）
 BLKID_CMD = _find_blkid()
+
+
+def _find_udevadm():
+    """查找 udevadm 可执行文件路径（发行版间布局不同）"""
+    for p in ("/usr/bin/udevadm", "/usr/sbin/udevadm", "/lib/udev/udevadm"):
+        if os.path.exists(p):
+            return p
+    return shutil.which("udevadm") or ""
+
+
+UDEVADM_CMD = _find_udevadm()
+
+
+def udev_has_fs_info(syspath):
+    """udev 数据库里是否已有该设备的 ID_FS_TYPE。
+    容器内的 /dev 节点是我们自己 mknod 出来的，udev 在处理原始 add 事件时节点还不
+    存在，blkid 探测失败 → ID_FS_* 全空 → udisks2/Dolphin 认不出文件系统类型与卷标。"""
+    if not UDEVADM_CMD:
+        return True
+    try:
+        result = subprocess.run(
+            [UDEVADM_CMD, "info", "--query=property", "--path", syspath],
+            capture_output=True, text=True, timeout=10
+        )
+    except Exception:
+        return True
+    if result.returncode != 0:
+        return True
+    return "ID_FS_TYPE=" in result.stdout
+
+
+# 每个 syspath 的最近一次触发时间：重扫周期只有 3s，不限流会反复灌 udev
+_udev_refreshed_at = {}
+
+
+def refresh_udev_fs_info(syspath, throttle=30.0):
+    """向 udev 重新发一次 change 事件，让它带着已存在的节点重新探测文件系统。
+    只读探测，不写任何设备数据。"""
+    if not UDEVADM_CMD:
+        return False
+    now = time.monotonic()
+    if now - _udev_refreshed_at.get(syspath, 0.0) < throttle:
+        return False
+    _udev_refreshed_at[syspath] = now
+    try:
+        subprocess.run(
+            ["sudo", "-n", UDEVADM_CMD, "trigger", "--action=change", syspath],
+            capture_output=True, timeout=10
+        )
+    except Exception:
+        return False
+    return True
 
 
 def detect_system_language():
@@ -782,6 +835,12 @@ class ScanWorker(QThread):
 
                         fs_type = self.get_fs_type(part_node)
                         mounted_at = self.get_mount_point(part_node)
+
+                        # 节点是我们补建的，udev 数据库里还没有 ID_FS_* → 让 udev 重新探测一次，
+                        # 这样 udisks2 / Dolphin 也能报出文件系统类型与卷标
+                        udev_path = f"/sys/block/{block_name}/{part_name}"
+                        if fs_type and not udev_has_fs_info(udev_path):
+                            refresh_udev_fs_info(udev_path)
 
                         device_info["partitions"].append({
                             "name": part_name,

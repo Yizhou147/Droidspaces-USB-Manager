@@ -12,7 +12,9 @@ cat > "$SUDOERS_TMP" << EOF
 # blkid 同时授权 /usr/bin 与 /usr/sbin 两种布局（不同发行版/版本位置不同）
 # rm 只放开 /dev 下几类节点：mknod 无法覆盖同名节点，拔插后设备号漂移的 stale
 # 节点必须先删除才能重建；容器内 /dev 对普通用户不可写，不授权就修不了。
-Cmnd_Alias DROIDSPACES_USB_MANAGER = /usr/bin/mount *, /usr/bin/umount *, /usr/bin/mknod *, /usr/bin/chmod *, /usr/bin/mkdir -p /dev/bus/usb/*, /usr/bin/blkid *, /usr/sbin/blkid *, /usr/bin/rm -f /dev/sd*, /usr/bin/rm -f /dev/video*, /usr/bin/rm -f /dev/bus/usb/*, /usr/bin/bash /usr/share/usb-manager/usb-passthrough.sh
+# udevadm 只放开"给 /sys/block 下的设备重发 change 事件"：容器里节点是 mknod 补的，
+# udev 数据库缺 ID_FS_*，udisks2/Dolphin 认不出文件系统类型与卷标。
+Cmnd_Alias DROIDSPACES_USB_MANAGER = /usr/bin/mount *, /usr/bin/umount *, /usr/bin/mknod *, /usr/bin/chmod *, /usr/bin/mkdir -p /dev/bus/usb/*, /usr/bin/blkid *, /usr/sbin/blkid *, /usr/bin/rm -f /dev/sd*, /usr/bin/rm -f /dev/video*, /usr/bin/rm -f /dev/bus/usb/*, /usr/bin/udevadm trigger --action=change /sys/block/*, /usr/sbin/udevadm trigger --action=change /sys/block/*, /usr/bin/bash /usr/share/usb-manager/usb-passthrough.sh
 ${CURRENT_USER} ALL=(root) NOPASSWD: DROIDSPACES_USB_MANAGER
 EOF
 
